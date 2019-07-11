@@ -38,8 +38,9 @@ yaml = YAML()
 
 from tqdm import tqdm
 
-from src import yaml_params
-from src.lens_model import get_model
+from . import yaml_params
+from gpyro import lensing
+#from src.lens_model import get_model
 
 
 
