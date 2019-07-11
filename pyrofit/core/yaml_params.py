@@ -110,7 +110,7 @@ def yaml2sampler(nob_name, yaml_parameters, device='cpu'):
     results.
     """
 
-    # TODO: Right now, every sampler call will re-parse the YAML file,
+    # FIXME: Right now, every sampler call will re-parse the YAML file,
     # including reading *.npy files from disk.  Needs speed-up.
     def sampler():
         nob = named.Object(nob_name)

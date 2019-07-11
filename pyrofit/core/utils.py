@@ -10,9 +10,6 @@ from pyro import distributions as dist
 from scipy.integrate import quad
 #from .utils import ConvKernel2dFFT as conv2dfft
 
-# FIXME: Remove dependence on lensing code
-from pyrofit.lensing.constants import Omega_m_0, Omega_Lambda_0, H0, vc, G_grav
-
 def onehot3d(x, shape = torch.Size()):
     r"""Returns hot 3-dim tensor.
     
@@ -310,28 +307,6 @@ def plot_cov_ellipse(cov, pos, nstd=2, ax=None, **kwargs):
     ax.add_artist(ellip)
     return ellip
 
-
-def a_of_z(z):
-    return 1. / (1. + z)
-
-
-def hubble_param(z):
-    return (Omega_Lambda_0 + Omega_m_0 * (1 + z)**3)**0.5
-
-
-def proper_distance(z):
-    # Mpc
-    return torch.tensor(vc / H0 * quad(lambda zp: 1 / hubble_param(zp), 0, z)[0])
-
-
-def angular_diameter_distance(z):
-    # Mpc
-    return proper_distance(z) / (1 + z)
-
-
-def rho_cr(z):
-    # kg * km**2 / m**3 / Mpc**2
-    return 3*H0**2 / (8*np.pi*G_grav) * hubble_param(z)**2
 
 
 def acosh(x):
