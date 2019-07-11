@@ -10,7 +10,8 @@ from pyro import distributions as dist
 from scipy.integrate import quad
 #from .utils import ConvKernel2dFFT as conv2dfft
 
-#from src.lensing.constants import Omega_m_0, Omega_Lambda_0, H0, vc, G_grav
+# FIXME: Remove dependence on lensing code
+from pyrofit.lensing.constants import Omega_m_0, Omega_Lambda_0, H0, vc, G_grav
 
 def onehot3d(x, shape = torch.Size()):
     r"""Returns hot 3-dim tensor.

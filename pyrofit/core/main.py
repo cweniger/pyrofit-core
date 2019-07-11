@@ -1,22 +1,9 @@
-#!/usr/bin/env python3
+# pyrofit
 #
-#  (                         (                         
-#  )\ )                      )\ )                      
-# (()/(   (      (          (()/(     (                
-#  /(_))  )\ )   )(     (    /(_))   ))\    (      (   
-# (_))   (()/(  (()\    )\  (_))    /((_)   )\ )   )\  
-# | _ \   )(_))  ((_)  ((_) | |    (_))    _(_/(  ((_) 
-# |  _/  | || | | '_| / _ \ | |__  / -_)  | ' \)) (_-< 
-# |_|     \_, | |_|   \___/ |____| \___|  |_||_|  /__/ 
-#         |__/                                         
+# version: v0.1
 #
-#                   pyrolens v0.1
-#
-# Modeling strong lensing images with
-# differentiable probabilistic programming
-#
-# Author: Christoph Weniger <c.weniger@uva.nl>
-# Date: Jan - July 2019
+# author: Christoph Weniger <c.weniger@uva.nl>
+# date: Jan - July 2019
 
 import click
 import numpy as np
@@ -39,7 +26,6 @@ yaml = YAML()
 from tqdm import tqdm
 
 from . import yaml_params
-from gpyro import lensing
 #from src.lens_model import get_model
 
 
@@ -118,24 +104,6 @@ def set_default_filenames(args):
     if args["resumefile"] is None:
         args["resumefile"] = args["fileroot"] + "_resume.pt"
 
-def save_mock(config, kwargs, model):
-    """Creates a mock observation for a model.
-    """
-    # TODO: Write separate function to dump all internal images, including
-    # alphas, source, etc, without noise
-
-    # Fix parameters to their initial values, and evaluate model
-    yaml_params.set_fix_all(True)
-
-    image = model()
-    filename = kwargs["fileroot"] + "_mock.npy"
-    np.save(filename, image.detach().cpu().numpy())
-    print("Saved mock image to: " + filename)
-#
-#    image = model(src_only = True)
-#    filename_src = kwargs["fileroot"] + "_mock_src.npy"
-#    np.save(filename_src, src)
-#    print("Saved mock source to: " + filename_src)
 
 def save_param_steps(args, infer_data):
     """Saves lists of parameter values.
@@ -462,12 +430,12 @@ def cli(**kwargs):
     with open(kwargs["yamlfile"], "r") as stream:
         config = yaml.load(stream)
 
-    module_name = config['module_name']
-    my_module = importlib.import_module(module_name)
+    module_name = config['pyrofit_module']
+    my_module = importlib.import_module("pyrofit."+module_name)
 
     if kwargs["command"] == "mock":
-        my_module.save_mock(config, kwargs)
-        #save_mock(config, kwargs, model)
+        model = my_module.get_model(config, device=kwargs["device"])
+        my_module.save_mock(config, kwargs, model)
     elif kwargs["command"] == "infer":
         # Generate model
         model = my_module.get_model(config, device=kwargs["device"])

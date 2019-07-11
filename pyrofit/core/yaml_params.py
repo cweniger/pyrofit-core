@@ -8,8 +8,8 @@ import torch
 from pyro.contrib.autoname import named
 # These may be needed by the eval statements below
 import pyro.distributions as dist
-from .utils import LogUniform
-from .utils import TruncatedNormal
+#from .utils import LogUniform
+#from .utils import TruncatedNormal
 
 INIT_VALUES = {}
 FIX_ALL = False
