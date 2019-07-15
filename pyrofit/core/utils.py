@@ -1,14 +1,17 @@
+# A list of general utility functions to simplify model bulding with pytorch/pyro
+
 import numpy as np
-import pyro
 import torch
 import torch.nn as nn
 import torch.nn.functional as func
 from torch.distributions.transformed_distribution import (
     TransformedDistribution)
 from torch.distributions.transforms import ExpTransform
-from pyro import distributions as dist
+
 from scipy.integrate import quad
-#from .utils import ConvKernel2dFFT as conv2dfft
+
+import pyro
+from pyro import distributions as dist
 
 def onehot3d(x, shape = torch.Size()):
     r"""Returns hot 3-dim tensor.

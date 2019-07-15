@@ -10,29 +10,67 @@ import numpy as np
 import pickle
 import collections
 import importlib
-
 import torch
-
 import pyro
-from pyro.contrib.autoguide import AutoDelta  #, AutoMultivariateNormal
+from pyro import poutine
+from torch.distributions import constraints
+from pyro.contrib.util import hessian
+from torch.distributions.transforms import AffineTransform, ComposeTransform
+from torch.distributions import biject_to
+from pyro.contrib.autoguide import AutoDelta, AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO, EmpiricalMarginal
-from pyro.infer.mcmc import MCMC, NUTS
+from pyro.infer.mcmc import MCMC, NUTS, HMC
 from pyro.optim import Adam, SGD
-
 from ruamel.yaml import YAML
 yaml = YAML()
-
 from tqdm import tqdm
 
 from . import yaml_params
-#from src.lens_model import get_model
-
-
 
 ######################
 # Auxilliary functions
 ######################
+
+def get_components(yaml_entries, type_mapping, device='cpu'):
+    """Instantiates objects defined in the lens plane.
+
+    These may be defined in terms of convergences ('kappas' section in yaml) or
+    deflection fields ('alphas' section).
+
+    Parameters
+    ----------
+    X, Y : torch.Tensor, torch.Tensor
+        Lens plane meshgrids.
+    entries : dict
+        Config entries.
+    type_mapping : dict(str -> (Object, dict))
+        Mapping from 'type' field in config to the corresponding object and a
+        dict containing any extra initializer arguments.
+    device : str
+
+    Returns
+    -------
+    instances : list
+        Instances of the relevant classes.
+    """
+    if yaml_entries is None: return []
+
+    instances = []
+    for name, entry in yaml_entries.items():
+        entry_type = entry["type"]
+        parameters = entry.get("parameters", {})
+        options = entry.get("options", {})
+
+        sampler = yaml_params.yaml2sampler(name, parameters, device=device)
+
+        cls, args, kwargs = type_mapping[entry_type]
+        kwargs.update(options)
+        kwargs.update({"device": device})
+        instance = cls(sampler, *args, **kwargs)
+
+        instances.append(instance)
+    return instances
 
 def listify(val):
     "Turns array into nested lists. Required for YAML output."
@@ -48,6 +86,14 @@ def listify(val):
         return str(ret)
     else:
         raise TypeError("Cannot write >2-dim tensors to yaml file")
+
+def get_conditioned_model(yaml_section, model, device='cpu'):
+    if yaml_section is None:
+        return model
+    conditions = {}
+    for name , val in yaml_section.items():
+        conditions[name] = yaml_params._parse_val(val, device = device, name = name)
+    return pyro.condition(model, conditions)
 
 
 ##############
@@ -83,33 +129,78 @@ def write_yaml(config, outfile):
         yaml.dump(config, outfile)
     print("Dumped current parameters into YAML file:", outfile)
 
+#def load_image_data(config_data):
+#    """Loads the observed image.
+#    """
+#    # Hack to avoid bit-errors when importing FITS-file based images
+#    raw = np.load(config_data["image"])
+#    img = np.zeros(raw.shape, dtype="float32")
+#    img[:] += raw
+#    return img
 
-def load_image_data(config_data):
-    """Loads the observed image.
-    """
-    # Hack to avoid bit-errors when importing FITS-file based images
-    raw = np.load(config_data["image"])
-    img = np.zeros(raw.shape, dtype="float32")
-    img[:] += raw
-    return img
-
-def set_default_filenames(args):
+def set_default_filenames(kwargs):
     """Sets the values of fileroot and the resume file.
 
     These can be set explicitly. If they're not, they are derived from the yaml
     filename.
     """
-    if args["fileroot"] is None:
-        args["fileroot"] = args["yamlfile"][:-5]
-    if args["resumefile"] is None:
-        args["resumefile"] = args["fileroot"] + "_resume.pt"
+    if kwargs["fileroot"] is None:
+        kwargs["fileroot"] = kwargs["yamlfile"][:-5]
+   # if kwargs["resumefile"] is None:
+   # kwargs["resumefile"] = kwargs["fileroot"] + "_resume.pt"
+    if kwargs["mockfile"] is None:
+        kwargs["mockfile"] = kwargs["fileroot"] + "_mock.npz"
+    if kwargs["optfile"] is None:
+        kwargs["optfile"] = kwargs["fileroot"] + "_opt.npz"
 
+def save_best_fit(filename, data, method):
+    out = {}
+    for x, y in data.items():
+        out[x] = y#.detach().cpu().numpy()
+    out['method'] = method
+    np.savez(filename, **out)
 
-def save_param_steps(args, infer_data):
-    """Saves lists of parameter values.
-    """
-    with open(args["fileroot"] + "_infer-data.pkl", "wb") as f:
-        pickle.dump(infer_data, f, pickle.HIGHEST_PROTOCOL)
+def get_transforms(filename, cond_model):
+    # Transformation to standard normal
+    try:
+        data = np.load(filename)
+        #for a, b in data.items():
+        #    print(a, b)
+        #quit()
+        if data['method'] != "quantiles":
+            raise NotImplementedError
+    except IOError:
+        print("Cannot lead optfile")
+        data = None
+
+    # Transformation to unconstrained parameters
+    trace = poutine.trace(cond_model).get_trace()
+    transforms = {}
+    for name in trace.stochastic_nodes:
+        trans1 = biject_to(trace.nodes[name]['fn'].support).inv
+        if data is not None:
+            loc = trans1(data[name][1])
+            scale = (trans1(data[name][2])-trans1(data[name][0]))/2
+            trans2 = AffineTransform(-loc/scale, 1/scale)
+            transforms[name] = ComposeTransform((trans1, trans2))
+        else:
+            transforms[name] = trans1
+    return transforms
+#
+#    for name, val in data.items():
+#        if name[:6] == "scale_":
+#            continue
+#        scale = 1/torch.tensor(data["scale_"+name[4:]])
+#        loc = -torch.tensor(val)*scale
+#        transform = AffineTransform(loc, scale)
+#        transforms[name[4:]] = ComposeTransform((transforms[name[4:]], transform))
+#    return transforms
+
+#def save_param_steps(args, infer_data):
+#    """Saves lists of parameter values.
+#    """
+#    with open(args["fileroot"] + "_infer-data.pkl", "wb") as f:
+#        pickle.dump(infer_data, f, pickle.HIGHEST_PROTOCOL)
         
 def load_param_steps(args):
     with open(args["fileroot"][:-3] + "init_infer-data.pkl", "rb") as f:
@@ -132,14 +223,14 @@ def load_posteriors(args):
 def save_param_store(args):
     """Saves the parameter store so optimization can be resumed later.
     """
-    pyro.get_param_store().save(args["fileroot"] + "_resume.pt")
+    pyro.get_param_store().save(args["resumefile"])
 
 def load_param_store(args):
     """Loads the parameter store from the resume file.
     """
     pyro.clear_param_store()
     try:
-        print("Trying to load resume file: " + args["resumefile"])
+        #print("Trying to load resume file: ", args["resumefile"])
         pyro.get_param_store().load(args["resumefile"])
         print("...success!")
     except FileNotFoundError:
@@ -195,29 +286,43 @@ def _infer_NUTS(args, cond_model):
     """
     import arviz  # required for saving results as netcdf file and plotting
 
+    #loc = torch.zeros(10000)
+    #scale = torch.ones(10000)
+    #transforms = {"params.mu": AffineTransform(loc, scale)}
+    transforms = get_transforms(args["optfile"], cond_model)
+
     # Set up NUTS kernel
     nuts_kernel = NUTS(
         cond_model,
         adapt_step_size=True,
         adapt_mass_matrix=True,
-        full_mass=True)
-        #hide=["image"])
-    # Must run model before get_init_values() since yaml parser is in the model
-    nuts_kernel.setup(warmup_steps=args["warmup_steps"])
+        full_mass=False,
+        use_multinomial_sampling=True,
+        jit_compile=False,
+        max_tree_depth = 10,
+        transforms = transforms,
+        step_size = 1e0)
 
-    # Set initial values
-    init_values = yaml_params.get_init_values()
-    initial_trace = nuts_kernel.initial_trace
-    sites = []
-    sites_vae = []
-    for key in init_values.keys():
-        print(key, init_values[key])
-        initial_trace.nodes[key]["value"] = init_values[key]
-        if init_values[key].numel() == 1:
-            sites.append(key)
-        else:
-            sites_vae.append(key)
-    nuts_kernel.initial_trace = initial_trace
+    initial_params = {name: torch.tensor(0.) for name in transforms.keys()}
+    nuts_kernel.initial_params = initial_params
+
+    # TODO: Update to use initial_params
+#    # Must run model before get_init_values() since yaml parser is in the model
+#    nuts_kernel.setup(warmup_steps=args["warmup_steps"])
+#
+#    # Set initial values
+#    init_values = yaml_params.get_init_values()
+#    initial_trace = nuts_kernel.initial_trace
+#    sites = []
+#    sites_vae = []
+#    for key in init_values.keys():
+#        print(key, init_values[key])
+#        initial_trace.nodes[key]["value"] = init_values[key]
+#        if init_values[key].numel() == 1:
+#            sites.append(key)
+#        else:
+#            sites_vae.append(key)
+#    nuts_kernel.initial_trace = initial_trace
 
     # Run
     posterior = MCMC(
@@ -226,32 +331,33 @@ def _infer_NUTS(args, cond_model):
         warmup_steps=args["warmup_steps"],
         num_chains=args["n_chains"]).run()
 
-    # Move traces to CPU
-    posterior.exec_traces = [
-        trace_to_cpu(trace) for trace in posterior.exec_traces
-    ]
-    
-    # ._get_samepls_and_weights() does NOT work if the parameters (sites)
-    # have a different size. So, in case of the 'VAE' source class,
-    # the parameters as to be divided into two classes, consequently
-    # two differents 'sites' must be defided!
-
-    # Save posteriors
-    hmc_posterior = EmpiricalMarginal(
-        posterior, sites)._get_samples_and_weights()[0].detach().numpy()
-    if len(sites_vae) > 0:
-        hmc_posterior_vae = EmpiricalMarginal(
-            posterior, sites_vae)._get_samples_and_weights()[0].detach().numpy()
-    dict_posteriors = {}
-    for i, key in enumerate(sites):
-        dict_posteriors[key] = hmc_posterior[:, i]
-    for i, key in enumerate(sites_vae):
-        dict_posteriors[key] = hmc_posterior_vae[:,i]
-    save_posteriors(args, dict_posteriors)
-
-    # Export chain netcdf
-    data = arviz.from_pyro(posterior)
-    arviz.to_netcdf(data, args["fileroot"] + "_chain.nc")
+# FIXME: Fix chain export
+#    # Move traces to CPU
+#    posterior.exec_traces = [
+#        trace_to_cpu(trace) for trace in posterior.exec_traces
+#    ]
+#    
+#    # ._get_samepls_and_weights() does NOT work if the parameters (sites)
+#    # have a different size. So, in case of the 'VAE' source class,
+#    # the parameters as to be divided into two classes, consequently
+#    # two differents 'sites' must be defided!
+#
+#    # Save posteriors
+#    hmc_posterior = EmpiricalMarginal(
+#        posterior, sites)._get_samples_and_weights()[0].detach().numpy()
+#    if len(sites_vae) > 0:
+#        hmc_posterior_vae = EmpiricalMarginal(
+#            posterior, sites_vae)._get_samples_and_weights()[0].detach().numpy()
+#    dict_posteriors = {}
+#    for i, key in enumerate(sites):
+#        dict_posteriors[key] = hmc_posterior[:, i]
+#    for i, key in enumerate(sites_vae):
+#        dict_posteriors[key] = hmc_posterior_vae[:,i]
+#    save_posteriors(args, dict_posteriors)
+#
+#    # Export chain netcdf
+#    data = arviz.from_pyro(posterior)
+#    arviz.to_netcdf(data, args["fileroot"] + "_chain.nc")
 
 def _infer_MAP(args, cond_model, n_write=10):
     """Runs MAP parameter inference.
@@ -274,15 +380,29 @@ def _infer_MAP(args, cond_model, n_write=10):
     loss : float
         Final value of loss.
     """
-    # Guide
-#    if args["guide"] == "DIRAC":
-    guide = AutoDelta(cond_model)
-#    if args["guide"] == "NORM":
-#        guide = AutoMultivariateNormal(cond_model)
+    # Simple delta guide
+    #guide = AutoDelta(cond_model)
+    guide = AutoDiagonalNormal(cond_model)
+    #guide = AutoLaplaceApproximation(cond_model)
+    #pyro.clear_param_store()
+    #pyro.clear_param_store()
+    #guide()
+    #auto_scale = pyro.param("auto_scale").detach()
+    #pyro.clear_param_store()
+    #pyro.param("auto_scale", auto_scale*1e-2)
+    #pyro.param("auto_scale", torch.ones(1000), constraint=constraints.positive)
+    #print pyro.param("auto_loc", torch.ones(latent_dim),
+    #                       constraint=constraints.positive)
+    #guide()
+    #print(pyro.param("auto_loc"))
+    #print(pyro.param("auto_scale"))
+    #guide = AutoMultivariateNormal(cond_model)
+    #print(guide())
+    #quit()
 
     # Perform parameter fits
     if args["opt"] == "ADAM":
-        optimizer = Adam({"lr": 1e-2, "amsgrad": False})
+        optimizer = Adam({"lr": 1e-2, "amsgrad": True})
     elif args["opt"] == "SGD":
         optimizer = SGD({"lr": 1e-11, "momentum": 0.0})
     svi = SVI(cond_model, guide, optimizer, loss=Trace_ELBO())
@@ -311,10 +431,11 @@ def _infer_MAP(args, cond_model, n_write=10):
             for name, value in pyro.get_param_store().items():
                 tqdm.write(name + ": " + str(value))
 
-            if i > 0:
-                tqdm.write("Saving resume file: " + args["resumefile"])
-                save_param_store(args)
-                save_param_steps(args, infer_data)
+            if args["resumefile"] is not None:
+                if i > 0:
+                    tqdm.write("Saving resume file: " + args["resumefile"])
+                    save_param_store(args)
+                    #save_param_steps(args, infer_data)
             tqdm.write("")
 
         # Save params step by step
@@ -327,11 +448,38 @@ def _infer_MAP(args, cond_model, n_write=10):
         if i % n_write == 0:
             tqdm.write("Loss: " + str(loss))
 
+#    # Estimate parameter variance (Laplace approximation, based on diagonals only)
+#    guide_trace = poutine.trace(guide).get_trace()
+#    model_trace = poutine.trace(
+#        poutine.replay(cond_model, trace=guide_trace)).get_trace()
+#    loss = guide_trace.log_prob_sum() - model_trace.log_prob_sum()
+
+#    
+#    # TODO: Add option to use full laplacian instead
+#    var_store = {}
+#    for name in guide().keys():
+#        print(name)
+#        loc = pyro.param("auto_"+name)
+#        try:
+#            H = hessian(loss, loc.unconstrained())
+#        except RuntimeError:
+#            H = torch.ones(1)
+#        var_store[name] = 1/torch.diag(H)
+
+    data = guide.quantiles([0.16, 0.5, 0.84])
+    save_best_fit(args['optfile'], data, method = 'quantiles')
+
     # Last save
-    save_param_store(args)
-    save_param_steps(args, infer_data)
+    if args["resumefile"] is not None:
+        save_param_store(args)
+    #save_param_steps(args, infer_data)
+
 
     return loss
+
+# Strategy:
+# - AutoDiagNormal --> MAP, and unconstrained loc and scale
+# - transforms
 
 def infer(args, config, model):
     """Runs a parameter inference algorithm.
@@ -352,8 +500,7 @@ def infer(args, config, model):
         If finding a point-estimate of the lensing system parameters, the loss
         between observed and inferred images. Otherwise, 0.
     """
-    image = torch.tensor(load_image_data(config["data"])).to(args["device"])
-    cond_model = pyro.condition(model, {"image": image})
+    cond_model = get_conditioned_model(config["conditioning"], model, device = args["device"])
 
     if args["mode"] == "MAP":
         loss = _infer_MAP(args, cond_model)
@@ -365,6 +512,20 @@ def infer(args, config, model):
 
     return loss
 
+def save_mock(model, filename, use_init_values = True):
+    yaml_params.set_fix_all(use_init_values)
+
+    traced_model = poutine.trace(model)
+    trace = traced_model.get_trace()
+
+    mock = {}
+    for tag in trace:
+        entry = trace.nodes[tag]
+        # Only save sampled components
+        if entry['type'] == 'sample':
+            mock[tag] = entry['value'].cpu().numpy()
+
+    np.savez(filename, **mock)
 
 ###############
 # Main PYROLENS
@@ -406,6 +567,10 @@ def infer(args, config, model):
 @click.option(
     "--outyaml", default=None, help="Output updated yaml file when using MAP.")
 @click.option(
+    "--mockfile", default=None, help="Mock file name (*.npz).")
+@click.option(
+    "--optfile", default=None, help="Optimization file name (*.npz).")
+@click.option(
     "--n_pixel", default=None, help="Pixel dimensions for mock image output (use 'nx,ny').")
 @click.version_option(version=0.1)
 # TODO: Can be removed?
@@ -421,7 +586,7 @@ def cli(**kwargs):
     """
 
     # If a resumefile was provided, presumably the user wants to resume running
-    resume = ("resumefile" in kwargs)
+    resume = (kwargs["resumefile"] is not None)
 
     # Set default root
     set_default_filenames(kwargs)
@@ -430,25 +595,25 @@ def cli(**kwargs):
     with open(kwargs["yamlfile"], "r") as stream:
         config = yaml.load(stream)
 
+    # Generate model
     module_name = config['pyrofit_module']
     my_module = importlib.import_module("pyrofit."+module_name)
+    model = my_module.get_model(config, device=kwargs["device"])
 
     if kwargs["command"] == "mock":
-        model = my_module.get_model(config, device=kwargs["device"])
-        my_module.save_mock(config, kwargs, model)
+        save_mock(model, kwargs['mockfile'], use_init_values = True)
     elif kwargs["command"] == "infer":
-        # Generate model
-        model = my_module.get_model(config, device=kwargs["device"])
         # Try restoring param store from previous run
         if resume:
             load_param_store(kwargs)
         try:
             loss = infer(kwargs, config, model)
-            config["data"]["loss"] = loss
+            #config["data"]["loss"] = loss
         except KeyboardInterrupt:
-            print("Interrupted. Saving resume file.")
+            print("Interrupted.")
 
-        save_param_store(kwargs)
+        if resume:
+            save_param_store(kwargs)
 
         if kwargs["outyaml"] is not None:
             write_yaml(config, kwargs["outyaml"])

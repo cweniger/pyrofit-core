@@ -27,21 +27,31 @@ def get_init_values():
 # Auxilliary functions
 ######################
 
-def _parse_val(val, device='cpu', dtype = torch.float32):
+def _parse_val(val, device='cpu', dtype = torch.float32, name = None):
     """Parse input value.  Note special treatment for augmented strings.
     """
     if isinstance(val, str):
         if val[:6] == "$EVAL ":
-            tmp = eval(val)
+            tmp = eval(val[6:])
         elif val[:5] == "$NPY ":
-            tmp = np.load(val)
+            tmp = np.load(val[5:])
+        elif val[:5] == "$NPZ ":
+            i, j = val.find("["), val.find("]")
+            if i > -1:  # If "[...]" given, use that as tag
+                name = val[i+1:j]
+                tmp = np.load(val[5:i])[name]
+            else:
+                tmp = np.load(val[5:])[name]
         elif val[:5] == "$CSV ":
             tmp = np.genfromtxt(val)
         else:
             return val
     else:
         tmp = val
-    return torch.tensor(val, dtype=dtype, device=device)
+    if isinstance(tmp, torch.Tensor):
+        return tmp.to(device)
+    else:
+        return torch.tensor(tmp, dtype=dtype, device=device)
 
 def _parse_entry(key, val, nob, name, device):
     global INIT_VALUES
