@@ -153,8 +153,8 @@ def set_default_filenames(kwargs):
         kwargs["mockfile"] = kwargs["fileroot"] + "_mock.npz"
     if kwargs["guidefile"] is None:
         kwargs["guidefile"] = kwargs["fileroot"] + "_guide.npz"
-    if kwargs["quantfile"] is None:
-        kwargs["quantfile"] = kwargs["fileroot"] + "_quantiles.npz"
+#    if kwargs["quantfile"] is None:
+#        kwargs["quantfile"] = kwargs["fileroot"] + "_quantiles.npz"
 
 def save_quantfile(filename, data):
     out = {}
@@ -178,7 +178,8 @@ def get_transforms_initial_params(filename, cond_model):
         trans1 = biject_to(trace.nodes[name]['fn'].support).inv
         loc = trans1(data[name][1])
         scale = (trans1(data[name][2])-trans1(data[name][0]))/2
-        trans2 = AffineTransform(-loc/scale, 1/scale)
+        trans2 = AffineTransform(loc, scale).inv
+        #trans2 = AffineTransform(0., 1.)
         transforms[name] = ComposeTransform((trans1, trans2))
         initial_params[name] = torch.zeros_like(loc)
     return transforms, initial_params
@@ -216,18 +217,17 @@ def load_posteriors(args):
         posteriors = pickle.load(f)
     return posteriors
 
-def save_param_store(args):
+def save_param_store(filename):
     """Saves the parameter store so optimization can be resumed later.
     """
-    pyro.get_param_store().save(args["resumefile"])
 
-def load_param_store(args):
+def load_param_store(guidefile):
     """Loads the parameter store from the resume file.
     """
     pyro.clear_param_store()
     try:
         #print("Trying to load resume file: ", args["resumefile"])
-        pyro.get_param_store().load(args["resumefile"])
+        pyro.get_param_store().load(guidefile)
         print("...success!")
     except FileNotFoundError:
         print("...no resume file not found. Starting from scratch.")
@@ -253,42 +253,63 @@ def load_true_param(config):
 
     return true_params
 
-def init_guide(model, filename = None, method = None):
-    # Load guide file, if provided, and check argument consistency
-    data = None
+def init_guide(cond_model, filename, method):
     if filename is not None:
-        try:
-            data = np.load(filename)
-            if method is not None:
-                assert data['method'].item() == method
-            else:
-                method = data['method'].item()
-        except FileNotFoundError:
-            print("No guidefile not found. Initializing guide from scratch.")
-
-    # Instantiate guide
-    if method == "AutoDiagonalNormal":
-        guide = AutoDiagonalNormal(model)
-        if data is not None:
-            pyro.param("auto_scale", torch.tensor(data['auto_scale']), constraint=constraints.positive)
-            pyro.param("auto_loc", torch.tensor(data['auto_loc']))
-    else:
-        raise KeyError("Invalid guide id.")
-
+        load_param_store(filename)
+    if method == 'Delta':
+        guide = AutoDelta(cond_model)
+    elif method == 'DiagonalNormal':
+        guide = AutoDiagonalNormal(cond_model)
     return guide
 
-def save_guide(guide, filename):
-    method = guide.__class__.__name__
-    data = {}
-    data['method'] = method
 
-    if method == 'AutoDiagonalNormal':
-        data['auto_loc'] = pyro.param('auto_loc').detach().cpu().numpy()
-        data['auto_scale'] = pyro.param('auto_scale').detach().cpu().numpy()
-    else:
-        raise NotImplementedError
+#def init_guide(model, filename = None, method = None):
+#    # Load guide file, if provided, and check argument consistency
+#    data = None
+#    if filename is not None:
+#        try:
+#            data = np.load(filename)
+#            if method is not None:
+#                assert data['method'].item() == method
+#            else:
+#                method = data['method'].item()
+#        except FileNotFoundError:
+#            print("No guidefile not found. Initializing guide from scratch.")
+#
+#    # Instantiate guide
+#    if method == "AutoDelta":
+#        guide = AutoDelta(model)
+#        # TODO: Setup initialization
+#    elif method == "AutoDiagonalNormal":
+#        guide = AutoDiagonalNormal(model)
+#        if data is not None:
+#            pyro.clear_param_store()
+#            pyro.param("auto_scale", torch.tensor(data['auto_scale']), constraint=constraints.positive)
+#            pyro.param("auto_loc", torch.tensor(data['auto_loc']))
+#        else:
+#            guide()
+#            pyro.clear_param_store()
+#            pyro.param("auto_loc", torch.zeros(guide.latent_dim))
+#            pyro.param("auto_scale", torch.ones(guide.latent_dim)*1e-1, constraint=constraints.positive)
+#    else:
+#        raise KeyError("Invalid guide id.")
+#
+#    return guide
 
-    np.savez(filename, **data)
+#def save_guide(guide, filename):
+#    method = guide.__class__.__name__
+#    data = {}
+#    data['method'] = method
+#
+#    if method == 'AutoDelta':
+#        for 'auto_'
+#    elif method == 'AutoDiagonalNormal':
+#        data['auto_loc'] = pyro.param('auto_loc').detach().cpu().numpy()
+#        data['auto_scale'] = pyro.param('auto_scale').detach().cpu().numpy()
+#    else:
+#        raise NotImplementedError
+#
+#    np.savez(filename, **data)
 
 
 #######################
@@ -393,7 +414,7 @@ def _infer_NUTS(args, cond_model):
 #    data = arviz.from_pyro(posterior)
 #    arviz.to_netcdf(data, args["fileroot"] + "_chain.nc")
 
-def _infer_MAP(args, cond_model, n_write=10):
+def _infer_VI(args, cond_model, n_write=10):
     """Runs MAP parameter inference.
 
     Regularly saves the parameter and loss values. Also saves the pyro
@@ -414,9 +435,28 @@ def _infer_MAP(args, cond_model, n_write=10):
     loss : float
         Final value of loss.
     """
-    # Simple delta guide
+
+    # Initialize VI model and guide
+    guide = init_guide(cond_model, args['guidefile'], args['guide'])
+#
+#        # Run YAML parsers attached to model to populate initial values
+#        cond_model()
+#
+#        # Initialize AutoDelta parameters before running guide first time
+#        init_values = yaml_params.get_init_values()
+#        for key in init_values.keys():
+#            pyro.param("auto_" + key, init_values[key])
+#
+#        guide()  # Initialize remaining guide parameters
+#        print("Fitting parameters:", list(pyro.get_param_store()))
+#
+#        print("Initial values:")
+#        for name, value in pyro.get_param_store().items():
+#            print(name + ": " + str(value))
+#        print()
+
     #guide = AutoDelta(cond_model)
-    guide = init_guide(cond_model, filename = args['guidefile'], method = "AutoDiagonalNormal")
+    #guide = init_guide(cond_model, filename = args['guidefile'], method = "AutoDelta")
     #guide = AutoDiagonalNormal(cond_model)
     #guide = AutoLaplaceApproximation(cond_model)
     #pyro.clear_param_store()
@@ -436,27 +476,12 @@ def _infer_MAP(args, cond_model, n_write=10):
     #quit()
 
     # Perform parameter fits
-    if args["opt"] == "ADAM":
-        optimizer = Adam({"lr": 1e-2, "amsgrad": True})
-    elif args["opt"] == "SGD":
-        optimizer = SGD({"lr": 1e-11, "momentum": 0.0})
+#    if args["opt"] == "ADAM":
+    optimizer = Adam({"lr": 1e-2, "amsgrad": True})
+    #elif args["opt"] == "SGD":
+    #    optimizer = SGD({"lr": 1e-11, "momentum": 0.0})
     svi = SVI(cond_model, guide, optimizer, loss=Trace_ELBO())
 
-    # Run YAML parsers inside model to populate initial values
-#    cond_model()
-#
-#    # Initialize AutoDelta parameters before running guide first time
-#    init_values = yaml_params.get_init_values()
-#    for key in init_values.keys():
-#        pyro.param("auto_" + key, init_values[key])
-#
-#    guide()  # Initialize remaining guide parameters
-#    print("Fitting parameters:", list(pyro.get_param_store()))
-#
-#    print("Initial values:")
-#    for name, value in pyro.get_param_store().items():
-#        print(name + ": " + str(value))
-#    print()
 
     # Container for monitoring progress
 #    infer_data = collections.defaultdict(list)
@@ -466,10 +491,10 @@ def _infer_MAP(args, cond_model, n_write=10):
             for name, value in pyro.get_param_store().items():
                 tqdm.write(name + ": " + str(value))
 
-            if args["resumefile"] is not None:
-                if i > 0:
-                    tqdm.write("Saving resume file: " + args["resumefile"])
-                    save_param_store(args)
+            #if args["resumefile"] is not None:
+            if i > 0:
+                #tqdm.write("Saving resume file: " + args["resumefile"])
+                pyro.get_param_store().save(args['guidefile'])
                     #save_param_steps(args, infer_data)
             tqdm.write("")
 
@@ -501,8 +526,8 @@ def _infer_MAP(args, cond_model, n_write=10):
 #            H = torch.ones(1)
 #        var_store[name] = 1/torch.diag(H)
 
-    if args['guidefile'] is not None:
-        save_guide(guide, args['guidefile'])
+
+    pyro.get_param_store().save(args['guidefile'])
 
     if args['quantfile'] is not None:
         data = guide.quantiles([0.16, 0.5, 0.84])
@@ -518,7 +543,7 @@ def _infer_MAP(args, cond_model, n_write=10):
 # - AutoDiagNormal --> MAP, and unconstrained loc and scale
 # - transforms
 
-def infer(args, config, model):
+def infer(args, config, cond_model):
     """Runs a parameter inference algorithm.
 
     Parameters
@@ -537,10 +562,9 @@ def infer(args, config, model):
         If finding a point-estimate of the lensing system parameters, the loss
         between observed and inferred images. Otherwise, 0.
     """
-    cond_model = get_conditioned_model(config["conditioning"], model, device = args["device"])
 
     if args["mode"] == "MAP":
-        loss = _infer_MAP(args, cond_model)
+        loss = _infer_VI(args, cond_model)
     elif args["mode"] == "NUTS":
         _infer_NUTS(args, cond_model)
         loss = 0.
@@ -548,6 +572,18 @@ def infer(args, config, model):
         raise KeyError("Unknown mode (select MAP or NUTS).")
 
     return loss
+
+def save_posterior_predictive(model, guide, filename):
+    data = guide()
+    pyro.clear_param_store()  # Don't save guide parameters in mock data
+    trace = poutine.trace(poutine.condition(model, data = data)).get_trace()
+
+    mock = {}
+    for tag in trace:
+        entry = trace.nodes[tag]
+        if entry['type'] == 'sample':
+            mock[tag] = entry['value'].detach().numpy()
+    np.savez(filename, **mock)
 
 def save_mock(model, filename, use_init_values = True):
     yaml_params.set_fix_all(use_init_values)
@@ -611,6 +647,8 @@ def save_mock(model, filename, use_init_values = True):
     "--quantfile", default=None, help="Quantifle file name (*.npz).")
 @click.option(
     "--n_pixel", default=None, help="Pixel dimensions for mock image output (use 'nx,ny').")
+@click.option(
+    "--guide", default="Delta", help="Pixel dimensions for mock image output (use 'nx,ny').")
 @click.version_option(version=0.1)
 # TODO: Can be removed?
 #@click.option(
@@ -625,7 +663,7 @@ def cli(**kwargs):
     """
 
     # If a resumefile was provided, presumably the user wants to resume running
-    resume = (kwargs["resumefile"] is not None)
+    #resume = (kwargs["resumefile"] is not None)
 
     # Set default root
     set_default_filenames(kwargs)
@@ -639,20 +677,26 @@ def cli(**kwargs):
     my_module = importlib.import_module("pyrofit."+module_name)
     model = my_module.get_model(config, device=kwargs["device"])
 
+
     if kwargs["command"] == "mock":
-        save_mock(model, kwargs['mockfile'], use_init_values = True)
+        save_mock(model, filename = kwargs['mockfile'])
+    elif kwargs["command"] == "ppd":
+        cond_model = get_conditioned_model(config["conditioning"], model, device = kwargs["device"])
+        guide = init_guide(cond_model, kwargs['guidefile'], method = kwargs['guide'])
+        save_posterior_predictive(model, guide, kwargs['mockfile'])
     elif kwargs["command"] == "infer":
         # Try restoring param store from previous run
-        if resume:
-            load_param_store(kwargs)
+#        if resume:
+#            load_param_store(kwargs)
         try:
-            loss = infer(kwargs, config, model)
+            cond_model = get_conditioned_model(config["conditioning"], model, device = kwargs["device"])
+            loss = infer(kwargs, config, cond_model)
             #config["data"]["loss"] = loss
         except KeyboardInterrupt:
             print("Interrupted.")
 
-        if resume:
-            save_param_store(kwargs)
+#        if resume:
+#            save_param_store(kwargs)
 
         if kwargs["outyaml"] is not None:
             write_yaml(config, kwargs["outyaml"])

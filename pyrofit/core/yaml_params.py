@@ -77,8 +77,9 @@ def _parse_entry(key, val, nob, name, device):
         getattr(nob, key).sample_(fn(*args))
         return
     if "init" in val.keys():
-        getattr(nob, key).param_(
-            _parse_val(val['init'], device=device))
+        setattr(nob, key, _parse_val(val['init'], device=device))
+        #getattr(nob, key).param_(
+        #    _parse_val(val['init'], device=device))
         return
     else:
         raise KeyError("Either prior or init or both must be specified.")
