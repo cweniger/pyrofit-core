@@ -17,7 +17,7 @@ from torch.distributions import constraints
 from pyro.contrib.util import hessian
 from torch.distributions.transforms import AffineTransform, ComposeTransform
 from torch.distributions import biject_to
-from pyro.contrib.autoguide import AutoDelta, AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal
+from pyro.contrib.autoguide import AutoDelta, AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal, init_to_sample
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO, EmpiricalMarginal
 from pyro.infer.mcmc import MCMC, NUTS, HMC
@@ -257,9 +257,9 @@ def init_guide(cond_model, filename, method):
     if filename is not None:
         load_param_store(filename)
     if method == 'Delta':
-        guide = AutoDelta(cond_model)
+        guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
     elif method == 'DiagonalNormal':
-        guide = AutoDiagonalNormal(cond_model)
+        guide = AutoDiagonalNormal(cond_model, init_loc_fn = init_to_sample)
     return guide
 
 
@@ -530,7 +530,11 @@ def _infer_VI(args, cond_model, n_write=10):
     pyro.get_param_store().save(args['guidefile'])
 
     if args['quantfile'] is not None:
-        data = guide.quantiles([0.16, 0.5, 0.84])
+        try:
+            data = guide.quantiles([0.16, 0.5, 0.84])
+            data = {key: [val.detach().numpy() for val in vals] for key, vals in data.items()}
+        except:
+            data = {key: val.detach().numpy() for key, val in guide.median().items()}
         save_quantfile(args['quantfile'], data)
 
     # Last save
@@ -659,7 +663,7 @@ def save_mock(model, filename, use_init_values = True):
 def cli(**kwargs):
     """This is PyroLens.
 
-    COMMAND: mock infer
+    COMMAND: mock ppd fit sample
     """
 
     # If a resumefile was provided, presumably the user wants to resume running
@@ -676,7 +680,6 @@ def cli(**kwargs):
     module_name = config['pyrofit_module']
     my_module = importlib.import_module("pyrofit."+module_name)
     model = my_module.get_model(config, device=kwargs["device"])
-
 
     if kwargs["command"] == "mock":
         save_mock(model, filename = kwargs['mockfile'])
