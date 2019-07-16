@@ -107,6 +107,7 @@ def update_yaml(yaml_section, key, val):
     """
     # Handle autoguide parameters
     # TODO: Check absence of model parameter interference
+    print(key)
     if "auto_" == key[:5]:
         key = key[5:]
     nob_name, param_name = key.split(".")
@@ -150,42 +151,37 @@ def set_default_filenames(kwargs):
    # kwargs["resumefile"] = kwargs["fileroot"] + "_resume.pt"
     if kwargs["mockfile"] is None:
         kwargs["mockfile"] = kwargs["fileroot"] + "_mock.npz"
-    if kwargs["optfile"] is None:
-        kwargs["optfile"] = kwargs["fileroot"] + "_opt.npz"
+    if kwargs["guidefile"] is None:
+        kwargs["guidefile"] = kwargs["fileroot"] + "_guide.npz"
+    if kwargs["quantfile"] is None:
+        kwargs["quantfile"] = kwargs["fileroot"] + "_quantiles.npz"
 
-def save_best_fit(filename, data, method):
+def save_quantfile(filename, data):
     out = {}
     for x, y in data.items():
         out[x] = y#.detach().cpu().numpy()
-    out['method'] = method
     np.savez(filename, **out)
 
-def get_transforms(filename, cond_model):
+def get_transforms_initial_params(filename, cond_model):
     # Transformation to standard normal
     try:
         data = np.load(filename)
-        #for a, b in data.items():
-        #    print(a, b)
-        #quit()
-        if data['method'] != "quantiles":
-            raise NotImplementedError
     except IOError:
-        print("Cannot lead optfile")
-        data = None
+        print("Cannot lead quantfile")
+        return None, None
 
     # Transformation to unconstrained parameters
     trace = poutine.trace(cond_model).get_trace()
     transforms = {}
+    initial_params = {}
     for name in trace.stochastic_nodes:
         trans1 = biject_to(trace.nodes[name]['fn'].support).inv
-        if data is not None:
-            loc = trans1(data[name][1])
-            scale = (trans1(data[name][2])-trans1(data[name][0]))/2
-            trans2 = AffineTransform(-loc/scale, 1/scale)
-            transforms[name] = ComposeTransform((trans1, trans2))
-        else:
-            transforms[name] = trans1
-    return transforms
+        loc = trans1(data[name][1])
+        scale = (trans1(data[name][2])-trans1(data[name][0]))/2
+        trans2 = AffineTransform(-loc/scale, 1/scale)
+        transforms[name] = ComposeTransform((trans1, trans2))
+        initial_params[name] = torch.zeros_like(loc)
+    return transforms, initial_params
 #
 #    for name, val in data.items():
 #        if name[:6] == "scale_":
@@ -257,6 +253,43 @@ def load_true_param(config):
 
     return true_params
 
+def init_guide(model, filename = None, method = None):
+    # Load guide file, if provided, and check argument consistency
+    data = None
+    if filename is not None:
+        try:
+            data = np.load(filename)
+            if method is not None:
+                assert data['method'].item() == method
+            else:
+                method = data['method'].item()
+        except FileNotFoundError:
+            print("No guidefile not found. Initializing guide from scratch.")
+
+    # Instantiate guide
+    if method == "AutoDiagonalNormal":
+        guide = AutoDiagonalNormal(model)
+        if data is not None:
+            pyro.param("auto_scale", torch.tensor(data['auto_scale']), constraint=constraints.positive)
+            pyro.param("auto_loc", torch.tensor(data['auto_loc']))
+    else:
+        raise KeyError("Invalid guide id.")
+
+    return guide
+
+def save_guide(guide, filename):
+    method = guide.__class__.__name__
+    data = {}
+    data['method'] = method
+
+    if method == 'AutoDiagonalNormal':
+        data['auto_loc'] = pyro.param('auto_loc').detach().cpu().numpy()
+        data['auto_scale'] = pyro.param('auto_scale').detach().cpu().numpy()
+    else:
+        raise NotImplementedError
+
+    np.savez(filename, **data)
+
 
 #######################
 # Inference
@@ -289,7 +322,8 @@ def _infer_NUTS(args, cond_model):
     #loc = torch.zeros(10000)
     #scale = torch.ones(10000)
     #transforms = {"params.mu": AffineTransform(loc, scale)}
-    transforms = get_transforms(args["optfile"], cond_model)
+    transforms, initial_params = get_transforms_initial_params(args["quantfile"], cond_model)
+    #transforms = None
 
     # Set up NUTS kernel
     nuts_kernel = NUTS(
@@ -301,9 +335,9 @@ def _infer_NUTS(args, cond_model):
         jit_compile=False,
         max_tree_depth = 10,
         transforms = transforms,
-        step_size = 1e0)
+        step_size = 1.)
 
-    initial_params = {name: torch.tensor(0.) for name in transforms.keys()}
+    #initial_params = {name: torch.tensor(0.) for name in transforms.keys()}
     nuts_kernel.initial_params = initial_params
 
     # TODO: Update to use initial_params
@@ -382,7 +416,8 @@ def _infer_MAP(args, cond_model, n_write=10):
     """
     # Simple delta guide
     #guide = AutoDelta(cond_model)
-    guide = AutoDiagonalNormal(cond_model)
+    guide = init_guide(cond_model, filename = args['guidefile'], method = "AutoDiagonalNormal")
+    #guide = AutoDiagonalNormal(cond_model)
     #guide = AutoLaplaceApproximation(cond_model)
     #pyro.clear_param_store()
     #pyro.clear_param_store()
@@ -408,23 +443,23 @@ def _infer_MAP(args, cond_model, n_write=10):
     svi = SVI(cond_model, guide, optimizer, loss=Trace_ELBO())
 
     # Run YAML parsers inside model to populate initial values
-    cond_model()
-
-    # Initialize AutoDelta parameters before running guide first time
-    init_values = yaml_params.get_init_values()
-    for key in init_values.keys():
-        pyro.param("auto_" + key, init_values[key])
-
-    guide()  # Initialize remaining guide parameters
-    print("Fitting parameters:", list(pyro.get_param_store()))
-
-    print("Initial values:")
-    for name, value in pyro.get_param_store().items():
-        print(name + ": " + str(value))
-    print()
+#    cond_model()
+#
+#    # Initialize AutoDelta parameters before running guide first time
+#    init_values = yaml_params.get_init_values()
+#    for key in init_values.keys():
+#        pyro.param("auto_" + key, init_values[key])
+#
+#    guide()  # Initialize remaining guide parameters
+#    print("Fitting parameters:", list(pyro.get_param_store()))
+#
+#    print("Initial values:")
+#    for name, value in pyro.get_param_store().items():
+#        print(name + ": " + str(value))
+#    print()
 
     # Container for monitoring progress
-    infer_data = collections.defaultdict(list)
+#    infer_data = collections.defaultdict(list)
 
     for i in tqdm(range(args["n_steps"])):
         if i % n_write == 0:
@@ -439,12 +474,12 @@ def _infer_MAP(args, cond_model, n_write=10):
             tqdm.write("")
 
         # Save params step by step
-        for name, value in pyro.get_param_store().items():
-            infer_data[name].append(value.detach().clone().numpy())
+#        for name, value in pyro.get_param_store().items():
+#            infer_data[name].append(value.detach().clone().numpy())
 
         loss = svi.step()
         # Save losses step by step
-        infer_data["losses"].append(loss)
+#        infer_data["losses"].append(loss)
         if i % n_write == 0:
             tqdm.write("Loss: " + str(loss))
 
@@ -466,16 +501,18 @@ def _infer_MAP(args, cond_model, n_write=10):
 #            H = torch.ones(1)
 #        var_store[name] = 1/torch.diag(H)
 
-    data = guide.quantiles([0.16, 0.5, 0.84])
-    save_best_fit(args['optfile'], data, method = 'quantiles')
+    if args['guidefile'] is not None:
+        save_guide(guide, args['guidefile'])
+
+    if args['quantfile'] is not None:
+        data = guide.quantiles([0.16, 0.5, 0.84])
+        save_quantfile(args['quantfile'], data)
 
     # Last save
-    if args["resumefile"] is not None:
-        save_param_store(args)
+#    if args["resumefile"] is not None:
+#        save_param_store(args)
     #save_param_steps(args, infer_data)
 
-
-    return loss
 
 # Strategy:
 # - AutoDiagNormal --> MAP, and unconstrained loc and scale
@@ -569,7 +606,9 @@ def save_mock(model, filename, use_init_values = True):
 @click.option(
     "--mockfile", default=None, help="Mock file name (*.npz).")
 @click.option(
-    "--optfile", default=None, help="Optimization file name (*.npz).")
+    "--guidefile", default=None, help="Optimization file name (*.npz).")
+@click.option(
+    "--quantfile", default=None, help="Quantifle file name (*.npz).")
 @click.option(
     "--n_pixel", default=None, help="Pixel dimensions for mock image output (use 'nx,ny').")
 @click.version_option(version=0.1)
