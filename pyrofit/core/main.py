@@ -414,7 +414,7 @@ def _infer_NUTS(args, cond_model):
 #    data = arviz.from_pyro(posterior)
 #    arviz.to_netcdf(data, args["fileroot"] + "_chain.nc")
 
-def _infer_VI(args, cond_model, n_write=10):
+def _infer_VI(cond_model, guide, guidefile, n_steps, n_write=10, quantfile = None):
     """Runs MAP parameter inference.
 
     Regularly saves the parameter and loss values. Also saves the pyro
@@ -437,7 +437,7 @@ def _infer_VI(args, cond_model, n_write=10):
     """
 
     # Initialize VI model and guide
-    guide = init_guide(cond_model, args['guidefile'], args['guide'])
+    guide = init_guide(cond_model, guidefile, guide)
 #
 #        # Run YAML parsers attached to model to populate initial values
 #        cond_model()
@@ -486,7 +486,7 @@ def _infer_VI(args, cond_model, n_write=10):
     # Container for monitoring progress
 #    infer_data = collections.defaultdict(list)
 
-    for i in tqdm(range(args["n_steps"])):
+    for i in tqdm(range(n_steps)):
         if i % n_write == 0:
             for name, value in pyro.get_param_store().items():
                 tqdm.write(name + ": " + str(value))
@@ -494,7 +494,7 @@ def _infer_VI(args, cond_model, n_write=10):
             #if args["resumefile"] is not None:
             if i > 0:
                 #tqdm.write("Saving resume file: " + args["resumefile"])
-                pyro.get_param_store().save(args['guidefile'])
+                pyro.get_param_store().save(guidefile)
                     #save_param_steps(args, infer_data)
             tqdm.write("")
 
@@ -527,15 +527,15 @@ def _infer_VI(args, cond_model, n_write=10):
 #        var_store[name] = 1/torch.diag(H)
 
 
-    pyro.get_param_store().save(args['guidefile'])
+    pyro.get_param_store().save(guidefile)
 
-    if args['quantfile'] is not None:
+    if quantfile is not None:
         try:
             data = guide.quantiles([0.16, 0.5, 0.84])
             data = {key: [val.detach().numpy() for val in vals] for key, vals in data.items()}
         except:
             data = {key: val.detach().numpy() for key, val in guide.median().items()}
-        save_quantfile(args['quantfile'], data)
+        save_quantfile(quantfile, data)
 
     # Last save
 #    if args["resumefile"] is not None:
@@ -608,68 +608,57 @@ def save_mock(model, filename, use_init_values = True):
 # Main PYROLENS
 ###############
 
-@click.command()
-@click.argument("command", required = True)
-@click.argument("yamlfile", required = True)
-@click.option(
-    "--n_steps", default=100, help="Number of steps (default 100).")
-@click.option(
-    "--fileroot",
-    default=None,
-    help="File root, default is yamlfile name without extension.")
-@click.option(
-    "--resumefile",
-    default=None,
-    help="Resume file name, default is derived from fileroot.")
-@click.option(
-    "--device",
-    default="cpu",
-    help="Set to 'cuda' to run on GPU (default 'cpu').")
-@click.option(
-    "--mode",
-    default="MAP",
-    help="Inference mode: MAP or NUTS (default 'MAP').")
-@click.option(
-    "--opt",
-    default="ADAM",
-    help="Optimization mode: ADAM or SGD (default 'ADAM')")
-@click.option(
-    "--n_chains",
-    default=1,
-    help="Number of chains for NUTS sampler (default 1).")
-@click.option(
-    "--warmup_steps",
-    default=50,
-    help="Warmup steps for NUTS sampler (default 50).")
-@click.option(
-    "--outyaml", default=None, help="Output updated yaml file when using MAP.")
-@click.option(
-    "--mockfile", default=None, help="Mock file name (*.npz).")
-@click.option(
-    "--guidefile", default=None, help="Optimization file name (*.npz).")
-@click.option(
-    "--quantfile", default=None, help="Quantifle file name (*.npz).")
-@click.option(
-    "--n_pixel", default=None, help="Pixel dimensions for mock image output (use 'nx,ny').")
-@click.option(
-    "--guide", default="Delta", help="Pixel dimensions for mock image output (use 'nx,ny').")
-@click.version_option(version=0.1)
-# TODO: Can be removed?
+#@click.command()
+#@click.argument("command", required = True)
+#@click.argument("yamlfile", required = True)
 #@click.option(
-#    "--guide",
-#    default="DIRAC",
-#    help="Guide used by SVI: DIRAC or NORM (default 'DIRAC')")
-#@click.option("--image", default=None, help="Overwrite image data file.")
-def cli(**kwargs):
+#    "--n_steps", default=100, help="Number of steps (default 100).")
+#@click.option(
+#    "--fileroot",
+#    default=None,
+#    help="File root, default is yamlfile name without extension.")
+#@click.option(
+#    "--resumefile",
+#    default=None,
+#    help="Resume file name, default is derived from fileroot.")
+#@click.option(
+#    "--device",
+#    default="cpu",
+#    help="Set to 'cuda' to run on GPU (default 'cpu').")
+#@click.option(
+#    "--mode",
+#    default="MAP",
+#    help="Inference mode: MAP or NUTS (default 'MAP').")
+#@click.option(
+#    "--opt",
+#    default="ADAM",
+#    help="Optimization mode: ADAM or SGD (default 'ADAM')")
+#@click.option(
+#    "--n_chains",
+#    default=1,
+#    help="Number of chains for NUTS sampler (default 1).")
+#@click.option(
+#    "--warmup_steps",
+#    default=50,
+#    help="Warmup steps for NUTS sampler (default 50).")
+#@click.option(
+#    "--outyaml", default=None, help="Output updated yaml file when using MAP.")
+#@click.option(
+#    "--mockfile", default=None, help="Mock file name (*.npz).")
+#@click.option(
+#    "--guidefile", default=None, help="Optimization file name (*.npz).")
+#@click.option(
+#    "--quantfile", default=None, help="Quantifle file name (*.npz).")
+#@click.option(
+#    "--n_pixel", default=None, help="Pixel dimensions for mock image output (use 'nx,ny').")
+#@click.option(
+#    "--guide", default="Delta", help="Pixel dimensions for mock image output (use 'nx,ny').")
+#@click.version_option(version=0.1)
+def cli2(**kwargs):
     """This is PyroLens.
 
     COMMAND: mock ppd fit sample
     """
-
-    # If a resumefile was provided, presumably the user wants to resume running
-    #resume = (kwargs["resumefile"] is not None)
-
-    # Set default root
     set_default_filenames(kwargs)
 
     # Obtain YAML file
@@ -705,3 +694,75 @@ def cli(**kwargs):
             write_yaml(config, kwargs["outyaml"])
     else:
         print("COMMAND unknown.  Run with --help for more info.")
+
+@click.group()
+@click.option("--device", default = 'cpu', help="cpu (default) or cuda")
+@click.argument("yamlfile")
+@click.version_option(version=0.1)
+@click.pass_context
+def cli(ctx, device, yamlfile):
+    """This is pyrofit."""
+    ctx.ensure_object(dict)
+
+    with open(yamlfile, "r") as stream:
+        yaml_config = yaml.load(stream)
+
+    # Generate model
+    module_name = yaml_config['pyrofit_module']
+    my_module = importlib.import_module("pyrofit."+module_name)
+    model = my_module.get_model(yaml_config, device=device)
+
+    # Pass on information
+    ctx.obj['device'] = device
+    ctx.obj['yaml_config'] = yaml_config
+    ctx.obj['yamlfile'] = yamlfile
+    ctx.obj['model'] = model
+
+    # Standard filenames
+    ctx.obj['default_guidefile'] = yamlfile[:-5]+"_guide.npz"
+
+
+@cli.command()
+@click.option("--n_steps", default = 1000)
+@click.option("--guide", default = "Delta")
+@click.option("--guidefile", default = None)
+@click.option("--quantfile", default = None)
+@click.pass_context
+def fit(ctx, n_steps, guide, guidefile, quantfile):
+    """Parameter inference with variational methods."""
+    if guidefile is None: guidefile = ctx.obj['default_guidefile']
+    model = ctx.obj['model']
+    device = ctx.obj['device']
+    yaml_config = ctx.obj['yaml_config']
+    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
+    _infer_VI(cond_model, guide, guidefile, n_steps, quantfile)
+
+@cli.command()
+@click.option("--warmup_steps", default = 100)
+@click.option("--n_steps", default = 300)
+def sample():
+    """Sample posterior with Hamiltonian Monte Carlo."""
+    raise NotImplementedError
+
+@cli.command()
+@click.argument("mockfile")
+@click.pass_context
+def mock(ctx, mockfile):
+    """Create mock data based on yaml file."""
+    model = ctx.obj['model']
+    save_mock(model, filename = mockfile)
+
+@cli.command()
+@click.option("--guide", default = "Delta")
+@click.option("--guidefile", default = None)
+@click.argument("ppdfile")
+@click.pass_context
+def ppd(ctx, guide, guidefile, ppdfile):
+    """Sample from posterior predictive distribution."""
+    if guidefile is None: guidefile = ctx.obj['default_guidefile']
+    model = ctx.obj['model']
+    device = ctx.obj['device']
+    yaml_config = ctx.obj['yaml_config']
+    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
+    guide = init_guide(cond_model, guidefile, method = guide)
+    save_posterior_predictive(model, guide, ppdfile)
