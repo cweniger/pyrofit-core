@@ -564,6 +564,10 @@ class PowerSpectrum2d:
         self.shape = shape
         self.nbins = nbins
         self.K = self._get_kgrid_2d(shape[0], shape[1])
+        self.kedges = torch.logspace(
+                torch.log10(min(self.K[1,0], self.K[0,1])),
+                torch.log10(self.K.max())+0.001, nbins+1)
+        self.kmeans = (self.kedges[1:] * self.kedges[:-1])**0.5
         
     @staticmethod
     def _get_kgrid_2d(nx, ny):
@@ -576,7 +580,7 @@ class PowerSpectrum2d:
         K = (KX**2 + KY**2)**0.5
         return K
 
-    def _P2d(self, img, nbins):
+    def _P2d(self, img):
         """Calculate power spectrum."""
         # Get variance in fourier space
         fft = torch.rfft(img, signal_ndim = 2, onesided = False)
@@ -584,14 +588,12 @@ class PowerSpectrum2d:
         var = (fft[:,:,0]**2 + fft[:,:,1]**2)/A**2
         
         # Generate grid output
-        kedges = torch.logspace(torch.log10(min(self.K[1,0], self.K[0,1])), torch.log10(self.K.max())+0.001, nbins+1)
         out = []
-        for i in range(nbins):
-            s = var[(kedges[i]<=self.K)&(self.K<kedges[i+1])].sum()
+        for i in range(self.nbins):
+            s = var[(self.kedges[i]<=self.K)&(self.K<self.kedges[i+1])].sum()
             out.append(s)
         out = torch.stack(out)
-        kmeans = (kedges[1:] * kedges[:-1])**0.5
-        return kmeans, out
+        return out
     
     def __call__(self, img):
-        return self._P2d(img, self.nbins)
+        return self._P2d(img)

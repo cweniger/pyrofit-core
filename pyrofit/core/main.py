@@ -62,6 +62,10 @@ def get_components(yaml_entries, type_mapping, device='cpu'):
         parameters = entry.get("parameters", {})
         options = entry.get("options", {})
 
+        # Parse option values
+        for key, val in options.items():
+            options[key] = yaml_params._parse_val(val, device=device)
+
         sampler = yaml_params.yaml2sampler(name, parameters, device=device)
 
         cls, args, kwargs = type_mapping[entry_type]
@@ -92,7 +96,7 @@ def get_conditioned_model(yaml_section, model, device='cpu'):
         return model
     conditions = {}
     for name , val in yaml_section.items():
-        conditions[name] = yaml_params._parse_val(val, device = device, name = name)
+        conditions[name] = yaml_params._parse_val(val, device = device)
     return pyro.condition(model, conditions)
 
 
@@ -414,7 +418,7 @@ def _infer_NUTS(args, cond_model):
 #    data = arviz.from_pyro(posterior)
 #    arviz.to_netcdf(data, args["fileroot"] + "_chain.nc")
 
-def _infer_VI(cond_model, guide, guidefile, n_steps, n_write=10, quantfile = None):
+def _infer_VI(cond_model, guide, guidefile, n_steps, quantfile = None, n_write=10):
     """Runs MAP parameter inference.
 
     Regularly saves the parameter and loss values. Also saves the pyro

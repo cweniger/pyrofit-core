@@ -27,7 +27,7 @@ def get_init_values():
 # Auxilliary functions
 ######################
 
-def _parse_val(val, device='cpu', dtype = torch.float32, name = None):
+def _parse_val(val, device='cpu', dtype = torch.float32):
     """Parse input value.  Note special treatment for augmented strings.
     """
     if isinstance(val, str):
