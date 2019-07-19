@@ -551,3 +551,47 @@ class ConvKernel2d(nn.Module):
         fft_prod[...,1] = fft_img[...,0]*self.fft_kernel[...,1]+fft_img[...,1]*self.fft_kernel[...,0]
         ret = torch.irfft(fft_prod, 2, onesided=False)
         return ret[self.shift[0]:self.shift[0]+self.s2[0], self.shift[1]:self.shift[1]+self.s2[1]]
+
+
+class PowerSpectrum2d:
+    def __init__(self, shape, nbins):
+        """Calculate binned power spectrum of 2-dim images.
+        
+        - Returns power integrated/summed over logarithmically spaced k-bins.
+        - We adopt the convention that pixel size = unit length.
+        - Note that sum(power) = var(img).
+        """
+        self.shape = shape
+        self.nbins = nbins
+        self.K = self._get_kgrid_2d(shape[0], shape[1])
+        
+    @staticmethod
+    def _get_kgrid_2d(nx, ny):
+        """Generate k-space grid."""
+        kx = torch.linspace(0, 2*np.pi*(1-1/nx), nx)
+        kx = (torch.fmod(kx+np.pi, 2*np.pi)-np.pi)*2
+        ky = torch.linspace(0, 2*np.pi*(1-1/ny), ny)
+        ky = (torch.fmod(ky+np.pi, 2*np.pi)-np.pi)*2
+        KX, KY = torch.meshgrid(kx, ky)
+        K = (KX**2 + KY**2)**0.5
+        return K
+
+    def _P2d(self, img, nbins):
+        """Calculate power spectrum."""
+        # Get variance in fourier space
+        fft = torch.rfft(img, signal_ndim = 2, onesided = False)
+        A = img.numel()
+        var = (fft[:,:,0]**2 + fft[:,:,1]**2)/A**2
+        
+        # Generate grid output
+        kedges = torch.logspace(torch.log10(min(self.K[1,0], self.K[0,1])), torch.log10(self.K.max())+0.001, nbins+1)
+        out = []
+        for i in range(nbins):
+            s = var[(kedges[i]<=self.K)&(self.K<kedges[i+1])].sum()
+            out.append(s)
+        out = torch.stack(out)
+        kmeans = (kedges[1:] * kedges[:-1])**0.5
+        return kmeans, out
+    
+    def __call__(self, img):
+        return self._P2d(img, self.nbins)
