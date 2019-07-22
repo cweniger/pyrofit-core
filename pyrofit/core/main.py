@@ -143,22 +143,22 @@ def write_yaml(config, outfile):
 #    img[:] += raw
 #    return img
 
-def set_default_filenames(kwargs):
-    """Sets the values of fileroot and the resume file.
-
-    These can be set explicitly. If they're not, they are derived from the yaml
-    filename.
-    """
-    if kwargs["fileroot"] is None:
-        kwargs["fileroot"] = kwargs["yamlfile"][:-5]
-   # if kwargs["resumefile"] is None:
-   # kwargs["resumefile"] = kwargs["fileroot"] + "_resume.pt"
-    if kwargs["mockfile"] is None:
-        kwargs["mockfile"] = kwargs["fileroot"] + "_mock.npz"
-    if kwargs["guidefile"] is None:
-        kwargs["guidefile"] = kwargs["fileroot"] + "_guide.npz"
-#    if kwargs["quantfile"] is None:
-#        kwargs["quantfile"] = kwargs["fileroot"] + "_quantiles.npz"
+#def set_default_filenames(kwargs):
+#    """Sets the values of fileroot and the resume file.
+#
+#    These can be set explicitly. If they're not, they are derived from the yaml
+#    filename.
+#    """
+#    if kwargs["fileroot"] is None:
+#        kwargs["fileroot"] = kwargs["yamlfile"][:-5]
+#   # if kwargs["resumefile"] is None:
+#   # kwargs["resumefile"] = kwargs["fileroot"] + "_resume.pt"
+#    if kwargs["mockfile"] is None:
+#        kwargs["mockfile"] = kwargs["fileroot"] + "_mock.npz"
+#    if kwargs["guidefile"] is None:
+#        kwargs["guidefile"] = kwargs["fileroot"] + "_guide.pt"
+##    if kwargs["quantfile"] is None:
+##        kwargs["quantfile"] = kwargs["fileroot"] + "_quantiles.npz"
 
 def save_quantfile(filename, data):
     out = {}
@@ -723,7 +723,7 @@ def cli(ctx, device, yamlfile):
     ctx.obj['model'] = model
 
     # Standard filenames
-    ctx.obj['default_guidefile'] = yamlfile[:-5]+"_guide.npz"
+    ctx.obj['default_guidefile'] = yamlfile[:-5]+"_guide.pt"
 
 
 @cli.command()
