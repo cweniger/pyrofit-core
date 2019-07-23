@@ -19,7 +19,7 @@ from torch.distributions.transforms import AffineTransform, ComposeTransform
 from torch.distributions import biject_to
 from pyro.contrib.autoguide import AutoDelta, AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal, init_to_sample
 import pyro.distributions as dist
-from pyro.infer import SVI, Trace_ELBO, EmpiricalMarginal
+from pyro.infer import SVI, Trace_ELBO, EmpiricalMarginal, JitTrace_ELBO
 from pyro.infer.mcmc import MCMC, NUTS, HMC
 from pyro.optim import Adam, SGD
 from ruamel.yaml import YAML
@@ -330,7 +330,7 @@ def trace_to_cpu(trace):
                 pass
     return trace
 
-def _infer_NUTS(args, cond_model):
+def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1):
     """Runs the NUTS HMC algorithm.
 
     Saves the samples and weights as well as a netcdf file for the run.
@@ -342,13 +342,13 @@ def _infer_NUTS(args, cond_model):
     cond_model : callable
         Model conditioned on an observed images.
     """
-    import arviz  # required for saving results as netcdf file and plotting
+    #import arviz  # required for saving results as netcdf file and plotting
 
     #loc = torch.zeros(10000)
     #scale = torch.ones(10000)
     #transforms = {"params.mu": AffineTransform(loc, scale)}
-    transforms, initial_params = get_transforms_initial_params(args["quantfile"], cond_model)
-    #transforms = None
+    #transforms, initial_params = get_transforms_initial_params(args["quantfile"], cond_model)
+    transforms = None
 
     # Set up NUTS kernel
     nuts_kernel = NUTS(
@@ -363,7 +363,7 @@ def _infer_NUTS(args, cond_model):
         step_size = 1.)
 
     #initial_params = {name: torch.tensor(0.) for name in transforms.keys()}
-    nuts_kernel.initial_params = initial_params
+    #nuts_kernel.initial_params = initial_params
 
     # TODO: Update to use initial_params
 #    # Must run model before get_init_values() since yaml parser is in the model
@@ -385,10 +385,8 @@ def _infer_NUTS(args, cond_model):
 
     # Run
     posterior = MCMC(
-        nuts_kernel,
-        args["n_steps"],
-        warmup_steps=args["warmup_steps"],
-        num_chains=args["n_chains"]).run()
+        nuts_kernel, n_steps, warmup_steps=warmup_steps,
+        num_chains=n_chains).run()
 
 # FIXME: Fix chain export
 #    # Move traces to CPU
@@ -418,7 +416,7 @@ def _infer_NUTS(args, cond_model):
 #    data = arviz.from_pyro(posterior)
 #    arviz.to_netcdf(data, args["fileroot"] + "_chain.nc")
 
-def _infer_VI(cond_model, guide, guidefile, n_steps, quantfile = None, n_write=10):
+def infer_VI(cond_model, guide, guidefile, n_steps, quantfile = None, n_write=10):
     """Runs MAP parameter inference.
 
     Regularly saves the parameter and loss values. Also saves the pyro
@@ -739,14 +737,19 @@ def fit(ctx, n_steps, guide, guidefile, quantfile):
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    _infer_VI(cond_model, guide, guidefile, n_steps, quantfile)
+    infer_VI(cond_model, guide, guidefile, n_steps, quantfile)
 
 @cli.command()
-@click.option("--warmup_steps", default = 100)
 @click.option("--n_steps", default = 300)
-def sample():
+@click.option("--warmup_steps", default = 100)
+@click.pass_context
+def sample(ctx, warmup_steps, n_steps):
     """Sample posterior with Hamiltonian Monte Carlo."""
-    raise NotImplementedError
+    model = ctx.obj['model']
+    device = ctx.obj['device']
+    yaml_config = ctx.obj['yaml_config']
+    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
+    infer_NUTS(cond_model, n_steps, warmup_steps)
 
 @cli.command()
 @click.argument("mockfile")
