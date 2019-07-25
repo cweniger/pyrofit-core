@@ -231,7 +231,7 @@ def load_param_store(paramfile):
     pyro.clear_param_store()
     try:
         pyro.get_param_store().load(paramfile)
-        print("...success!")
+        print("Loading param_store file:", paramfile)
     except FileNotFoundError:
         print("...no resume file not found. Starting from scratch.")
 
