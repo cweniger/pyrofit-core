@@ -262,7 +262,7 @@ def init_guide(cond_model, guidetype, guidefile = None):
     if guidetype == 'Delta':
         guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
     elif guidetype == 'DiagonalNormal':
-        guide = AutoDiagonalNormal(cond_model, init_loc_fn = init_to_sample)
+        guide = AutoDiagonalNormal(cond_model, init_loc_fn = init_to_sample, init_scale = 0.01)
     elif guidetype == 'MultivariateNormal':
         guide = AutoMultivariateNormal(cond_model, init_loc_fn = init_to_sample)
     elif guidetype == 'LowRankMultivariateNormal':
@@ -346,6 +346,20 @@ def trace_to_cpu(trace):
                 pass
     return trace
 
+
+def make_transformed_pe(potential_fn, transform, unpack_fn):
+    def transformed_potential_fn(arg):
+        # NB: currently, intermediates for ComposeTransform is None, so this has no effect
+        # see https://github.com/pyro-ppl/numpyro/issues/242
+        z = arg["z"]
+        u = transform(z)
+        logdet = transform.log_abs_det_jacobian(z, u).sum()
+        d = {s['name']: b for s, b in unpack_fn(u)}
+        return potential_fn(d) + logdet
+
+    return transformed_potential_fn
+    
+
 def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', guidefile = None, guidetype = None):
     """Runs the NUTS HMC algorithm.
 
@@ -406,6 +420,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
 #    if guidefile is not None:
         #guide = init_guide(cond_model, guidetype, guidefile = guidefile)
 #        initial_params, _, _, _ = util.initialize_model(guide)
+
     initial_params, potential_fn, transforms, prototype_trace = util.initialize_model(cond_model)
 
     if guidefile is not None:
@@ -414,10 +429,18 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
         for key in initial_params.keys():
             initial_params[key] = transforms[key](sample[key].detach())
 
+    if guidetype == "DiagonalNormal":
+        transform = guide.get_transform()
+        unpack_fn = lambda u: guide.unpack_latent(u)
+        potential_fn = make_transformed_pe(potential_fn, transform, unpack_fn)
+        initial_params = {"z": torch.zeros(guide.get_posterior().shape())}
+        transforms = None
+
     def fun(*args, **kwargs):
         res = potential_fn(*args, **kwargs)
         print(res)
         return res
+
 
     nuts_kernel = NUTS(
         potential_fn = fun,
