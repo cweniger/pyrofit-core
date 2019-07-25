@@ -111,7 +111,7 @@ class OnehotConv2d:
         if method == 'conv2d':
             self._my_call = self._eval_conv2d
         elif method == 'fft':
-            self.conv2dfft = conv2dfft(self.kernel, self.hotshape_padded)
+            self.conv2dfft = ConvKernel2dFFT(self.kernel, self.hotshape_padded)
             print("FFT convolution shape:", self.hotshape_padded)
             self._my_call = self._eval_conv2dfft
 
