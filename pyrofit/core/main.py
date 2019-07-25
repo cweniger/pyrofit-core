@@ -429,6 +429,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
         for key in initial_params.keys():
             initial_params[key] = transforms[key](sample[key].detach())
 
+    # FIXME: In the case of DiagonalNormal, results have to be mapped back onto unpacked latents
     if guidetype == "DiagonalNormal":
         transform = guide.get_transform()
         unpack_fn = lambda u: guide.unpack_latent(u)
@@ -453,9 +454,6 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
         transforms = transforms,
         step_size = 1.)
     nuts_kernel.initial_params = initial_params
-    #print(nuts_kernel._initial_trace)
-    #quit()
-    #nuts_kernel.initial_params = {'image': 'wtf'}
 
     # Run
     posterior = MCMC(
