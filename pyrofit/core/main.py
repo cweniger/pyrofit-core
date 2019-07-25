@@ -17,7 +17,7 @@ from torch.distributions import constraints
 from pyro.contrib.util import hessian
 from torch.distributions.transforms import AffineTransform, ComposeTransform
 from torch.distributions import biject_to
-from pyro.contrib.autoguide import AutoDelta, AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal, init_to_sample
+from pyro.contrib.autoguide import AutoDelta, AutoLowRankMultivariateNormal, AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal, init_to_sample
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO, EmpiricalMarginal, JitTrace_ELBO
 from pyro.infer.mcmc import MCMC, NUTS, HMC, util
@@ -263,6 +263,12 @@ def init_guide(cond_model, guidetype, guidefile = None):
         guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
     elif guidetype == 'DiagonalNormal':
         guide = AutoDiagonalNormal(cond_model, init_loc_fn = init_to_sample)
+    elif guidetype == 'MultivariateNormal':
+        guide = AutoMultivariateNormal(cond_model, init_loc_fn = init_to_sample)
+    elif guidetype == 'LowRankMultivariateNormal':
+        guide = AutoLowRankMultivariateNormal(cond_model, init_loc_fn = init_to_sample)
+    elif guidetype == 'LaplaceApproximation':
+        guide = AutoLaplaceApproximation(cond_model, init_loc_fn = init_to_sample)
     else:
         raise KeyError("Guide type unknown")
     return guide
