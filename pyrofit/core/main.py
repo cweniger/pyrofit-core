@@ -808,16 +808,16 @@ def mock(ctx, mockfile):
     save_mock(model, filename = mockfile)
 
 @cli.command()
-@click.option("--guide", default = "Delta")
+@click.option("--guidetype", default = "Delta")
 @click.option("--guidefile", default = None)
 @click.argument("ppdfile")
 @click.pass_context
-def ppd(ctx, guide, guidefile, ppdfile):
+def ppd(ctx, guidetype, guidefile, ppdfile):
     """Sample from posterior predictive distribution."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    guide = init_guide(cond_model, guidefile, method = guide)
+    guide = init_guide(cond_model, guidetype, guidefile = guidefile)
     save_posterior_predictive(model, guide, ppdfile)
