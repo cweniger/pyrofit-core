@@ -20,7 +20,7 @@ from torch.distributions import biject_to
 from pyro.contrib.autoguide import AutoDelta, AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal, init_to_sample
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO, EmpiricalMarginal, JitTrace_ELBO
-from pyro.infer.mcmc import MCMC, NUTS, HMC
+from pyro.infer.mcmc import MCMC, NUTS, HMC, util
 from pyro.optim import Adam, SGD
 from ruamel.yaml import YAML
 yaml = YAML()
@@ -225,13 +225,12 @@ def save_param_store(filename):
     """Saves the parameter store so optimization can be resumed later.
     """
 
-def load_param_store(guidefile):
+def load_param_store(paramfile):
     """Loads the parameter store from the resume file.
     """
     pyro.clear_param_store()
     try:
-        #print("Trying to load resume file: ", args["resumefile"])
-        pyro.get_param_store().load(guidefile)
+        pyro.get_param_store().load(paramfile)
         print("...success!")
     except FileNotFoundError:
         print("...no resume file not found. Starting from scratch.")
@@ -257,14 +256,25 @@ def load_true_param(config):
 
     return true_params
 
-def init_guide(cond_model, filename, method):
-    if filename is not None:
-        load_param_store(filename)
-    if method == 'Delta':
+def init_guide(cond_model, guidetype, guidefile = None):
+    if guidefile is not None:
+        load_param_store(guidefile)
+    if guidetype == 'Delta':
         guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
-    elif method == 'DiagonalNormal':
+    elif guidetype == 'DiagonalNormal':
         guide = AutoDiagonalNormal(cond_model, init_loc_fn = init_to_sample)
+    else:
+        raise KeyError("Guide type unknown")
     return guide
+
+def save_guide(guidetype, guidefile):
+    pyro.get_param_store().save(guidefile)
+
+def initial_params_from_guide(guide):
+    median = guide.median()
+    for key in median:
+        median[key] = median[key].detach()
+    return median
 
 
 #def init_guide(model, filename = None, method = None):
@@ -330,7 +340,7 @@ def trace_to_cpu(trace):
                 pass
     return trace
 
-def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1):
+def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', guidefile = None, guidetype = None):
     """Runs the NUTS HMC algorithm.
 
     Saves the samples and weights as well as a netcdf file for the run.
@@ -350,20 +360,25 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1):
     #transforms, initial_params = get_transforms_initial_params(args["quantfile"], cond_model)
     transforms = None
 
+    # For some reason, jit breaks on CPUs
+    jit_compile = device != 'cpu'
+
     # Set up NUTS kernel
-    nuts_kernel = NUTS(
-        cond_model,
-        adapt_step_size=True,
-        adapt_mass_matrix=True,
-        full_mass=False,
-        use_multinomial_sampling=True,
-        jit_compile=False,
-        max_tree_depth = 10,
-        transforms = transforms,
-        step_size = 1.)
+#    nuts_kernel = NUTS(
+#        cond_model,
+#        adapt_step_size=True,
+#        adapt_mass_matrix=True,
+#        full_mass=False,
+#        use_multinomial_sampling=True,
+#        jit_compile=jit_compile,
+#        max_tree_depth = 10,
+#        transforms = transforms,
+#        step_size = 1.)
+
+#        initial_params = initial_params_from_guide(guide)
+#        nuts_kernel.initial_params = initial_params
 
     #initial_params = {name: torch.tensor(0.) for name in transforms.keys()}
-    #nuts_kernel.initial_params = initial_params
 
     # TODO: Update to use initial_params
 #    # Must run model before get_init_values() since yaml parser is in the model
@@ -382,6 +397,36 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1):
 #        else:
 #            sites_vae.append(key)
 #    nuts_kernel.initial_trace = initial_trace
+#    if guidefile is not None:
+        #guide = init_guide(cond_model, guidetype, guidefile = guidefile)
+#        initial_params, _, _, _ = util.initialize_model(guide)
+    initial_params, potential_fn, transforms, prototype_trace = util.initialize_model(cond_model)
+
+    if guidefile is not None:
+        guide = init_guide(cond_model, guidetype, guidefile = guidefile)
+        sample = guide()
+        for key in initial_params.keys():
+            initial_params[key] = transforms[key](sample[key].detach())
+
+    def fun(*args, **kwargs):
+        res = potential_fn(*args, **kwargs)
+        print(res)
+        return res
+
+    nuts_kernel = NUTS(
+        potential_fn = fun,
+        adapt_step_size=True,
+        adapt_mass_matrix=True,
+        full_mass=False,
+        use_multinomial_sampling=True,
+        jit_compile=jit_compile,
+        max_tree_depth = 10,
+        transforms = transforms,
+        step_size = 1.)
+    nuts_kernel.initial_params = initial_params
+    #print(nuts_kernel._initial_trace)
+    #quit()
+    #nuts_kernel.initial_params = {'image': 'wtf'}
 
     # Run
     posterior = MCMC(
@@ -416,7 +461,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1):
 #    data = arviz.from_pyro(posterior)
 #    arviz.to_netcdf(data, args["fileroot"] + "_chain.nc")
 
-def infer_VI(cond_model, guide, guidefile, n_steps, quantfile = None, n_write=10):
+def infer_VI(cond_model, guidetype, guidefile, n_steps, n_write=10, device = 'cpu'):
     """Runs MAP parameter inference.
 
     Regularly saves the parameter and loss values. Also saves the pyro
@@ -439,7 +484,7 @@ def infer_VI(cond_model, guide, guidefile, n_steps, quantfile = None, n_write=10
     """
 
     # Initialize VI model and guide
-    guide = init_guide(cond_model, guidefile, guide)
+    guide = init_guide(cond_model, guidetype, guidefile = guidefile)
 #
 #        # Run YAML parsers attached to model to populate initial values
 #        cond_model()
@@ -474,15 +519,15 @@ def infer_VI(cond_model, guide, guidefile, n_steps, quantfile = None, n_write=10
     #print(pyro.param("auto_loc"))
     #print(pyro.param("auto_scale"))
     #guide = AutoMultivariateNormal(cond_model)
-    #print(guide())
-    #quit()
 
-    # Perform parameter fits
-#    if args["opt"] == "ADAM":
     optimizer = Adam({"lr": 1e-2, "amsgrad": True})
-    #elif args["opt"] == "SGD":
-    #    optimizer = SGD({"lr": 1e-11, "momentum": 0.0})
-    svi = SVI(cond_model, guide, optimizer, loss=Trace_ELBO())
+
+    # For some reason, JitTrace_ELBO breaks for CPU
+    if device == 'cpu':
+        loss = Trace_ELBO()
+    else:
+        loss = JitTrace_ELBO()
+    svi = SVI(cond_model, guide, optimizer, loss=loss)
 
 
     # Container for monitoring progress
@@ -528,16 +573,15 @@ def infer_VI(cond_model, guide, guidefile, n_steps, quantfile = None, n_write=10
 #            H = torch.ones(1)
 #        var_store[name] = 1/torch.diag(H)
 
+    save_guide(guidetype, guidefile)
 
-    pyro.get_param_store().save(guidefile)
-
-    if quantfile is not None:
-        try:
-            data = guide.quantiles([0.16, 0.5, 0.84])
-            data = {key: [val.detach().numpy() for val in vals] for key, vals in data.items()}
-        except:
-            data = {key: val.detach().numpy() for key, val in guide.median().items()}
-        save_quantfile(quantfile, data)
+#    if quantfile is not None:
+#        try:
+#            data = guide.quantiles([0.16, 0.5, 0.84])
+#            data = {key: [val.detach().numpy() for val in vals] for key, vals in data.items()}
+#        except:
+#            data = {key: val.detach().numpy() for key, val in guide.median().items()}
+#        save_quantfile(quantfile, data)
 
     # Last save
 #    if args["resumefile"] is not None:
@@ -726,30 +770,34 @@ def cli(ctx, device, yamlfile):
 
 @cli.command()
 @click.option("--n_steps", default = 1000)
-@click.option("--guide", default = "Delta")
+@click.option("--guidetype", default = "Delta")
 @click.option("--guidefile", default = None)
-@click.option("--quantfile", default = None)
+#@click.option("--quantfile", default = None)
 @click.pass_context
-def fit(ctx, n_steps, guide, guidefile, quantfile):
+def fit(ctx, n_steps, guidetype, guidefile):
     """Parameter inference with variational methods."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    infer_VI(cond_model, guide, guidefile, n_steps, quantfile)
+    infer_VI(cond_model, guidetype, guidefile, n_steps, device = device)
 
 @cli.command()
 @click.option("--n_steps", default = 300)
 @click.option("--warmup_steps", default = 100)
+@click.option("--guidetype", default = None)
+@click.option("--guidefile", default = None)
 @click.pass_context
-def sample(ctx, warmup_steps, n_steps):
+def sample(ctx, warmup_steps, n_steps, guidetype, guidefile):
     """Sample posterior with Hamiltonian Monte Carlo."""
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
-    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    infer_NUTS(cond_model, n_steps, warmup_steps)
+    cond_model = get_conditioned_model(yaml_config["conditioning"], model,
+            device = device)
+    infer_NUTS(cond_model, n_steps, warmup_steps, device = device, guidefile =
+            guidefile, guidetype = guidetype)
 
 @cli.command()
 @click.argument("mockfile")
