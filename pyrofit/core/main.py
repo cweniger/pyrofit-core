@@ -7,21 +7,17 @@
 
 import click
 import numpy as np
-import pickle
-import collections
 import importlib
 import torch
 import pyro
 from pyro import poutine
-from torch.distributions import constraints
-from pyro.contrib.util import hessian
-from torch.distributions.transforms import AffineTransform, ComposeTransform
-from torch.distributions import biject_to
-from pyro.contrib.autoguide import AutoDelta, AutoLowRankMultivariateNormal, AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal, init_to_sample
+from pyro.contrib.autoguide import (AutoDelta, AutoLowRankMultivariateNormal,
+        AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal,
+        init_to_sample)
 import pyro.distributions as dist
-from pyro.infer import SVI, Trace_ELBO, EmpiricalMarginal, JitTrace_ELBO
-from pyro.infer.mcmc import MCMC, NUTS, HMC, util
-from pyro.optim import Adam, SGD
+from pyro.infer import SVI, Trace_ELBO
+from pyro.infer.mcmc import MCMC, NUTS, util
+from pyro.optim import Adam
 from ruamel.yaml import YAML
 yaml = YAML()
 from tqdm import tqdm
@@ -104,93 +100,19 @@ def get_conditioned_model(yaml_section, model, device='cpu'):
 # I/O Routines
 ##############
 
-def update_yaml(yaml_section, key, val):
-    """Updates `init` values in yaml file.
-
-    We assume that `key' = 'nob_name.param_name' OR 'auto_nob_name.param_name'.
-    """
-    # Handle autoguide parameters
-    # TODO: Check absence of model parameter interference
-    print(key)
-    if "auto_" == key[:5]:
-        key = key[5:]
-    nob_name, param_name = key.split(".")
-    if nob_name in yaml_section.keys():
-        entry = yaml_section[nob_name]["parameters"][param_name]
-        if isinstance(entry, dict):
-            entry["init"] = listify(val)
-        else:
-            entry = listify(val)
-
-def write_yaml(config, outfile):
-    """Dump updated YAML file."""
-    ps = pyro.get_param_store()
-    for key in ps.keys():
-        val = ps[key].detach().cpu().numpy()
-        for section in ['alphas', 'kappas', 'sources']:
-            if config[section] is not None:
-                update_yaml(config[section], key, val)
-    with open(outfile, "w") as outfile:
-        yaml.dump(config, outfile)
-    print("Dumped current parameters into YAML file:", outfile)
-
-def load_param_steps(args):
-    with open(args["fileroot"][:-3] + "init_infer-data.pkl", "rb") as f:
-        infer_data = pickle.load(f)
-    return infer_data
-
-def save_posteriors(args, posteriors):
-    """Saves empirical posteriors (ie, MCMC samples and weights).
-    """
-    with open(args["fileroot"] + "_posteriors.pkl", "wb") as f:
-        pickle.dump(posteriors, f, pickle.HIGHEST_PROTOCOL)
-
-def load_posteriors(args):
-    """Loads posterior values.
-    """
-    with open(args["fileroot"] + "_posteriors.pkl", "rb") as f:
-        posteriors = pickle.load(f)
-    return posteriors
-
-def save_param_store(filename):
-    """Saves the parameter store so optimization can be resumed later.
-    """
-
-def load_param_store(paramfile, device = 'cpu'):
+def load_param_store(paramfile):
     """Loads the parameter store from the resume file.
     """
     pyro.clear_param_store()
     try:
-        print(device)
-        pyro.get_param_store().load(paramfile, map_location = device)
+        pyro.get_param_store().load(paramfile)
         print("Loading param_store file:", paramfile)
     except FileNotFoundError:
         print("...no resume file not found. Starting from scratch.")
 
-def load_true_param(config):
-    with open(config["data"]["true_yaml"], "r") as stream:
-        config_true = yaml.load(stream)
-    
-    alphas = config_true['alphas']
-    kappas = config_true['kappas']
-    
-    true_params = {}
-    
-    if alphas is not None:
-        for i in range(0,len(alphas)):
-            for key in alphas[i]["parameters"].keys():
-                true_params[alphas[i]["name"]+"."+key] = alphas[i]["parameters"][key]
-    
-    if kappas is not None:
-        for i in range(0,len(kappas),0):
-            for key in kappas[i]["parameters"].keys():
-                true_params[kappas[i]["name"]+"."+key] = kappas[i]["parameters"][key]
-
-    return true_params
-
-def init_guide(cond_model, guidetype, guidefile = None, device = 'cpu'):
+def init_guide(cond_model, guidetype, guidefile = None):
     if guidefile is not None:
-        load_param_store(guidefile, device = device)
+        load_param_store(guidefile)
     if guidetype == 'Delta':
         guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
     elif guidetype == 'DiagonalNormal':
@@ -208,27 +130,10 @@ def init_guide(cond_model, guidetype, guidefile = None, device = 'cpu'):
 def save_guide(guidetype, guidefile):
     pyro.get_param_store().save(guidefile)
 
-def initial_params_from_guide(guide):
-    median = guide.median()
-    for key in median:
-        median[key] = median[key].detach()
-    return median
-
 
 #######################
 # Inference
 #######################
-
-def trace_to_cpu(trace):
-    """Puts all the values in a trace on the CPU."""
-    for key in trace.nodes.keys():
-        if key != "_INPUT" and key != "_RETURN":
-            try:
-                trace.nodes[key]["value"] = trace.nodes[key]["value"].cpu()
-            except KeyError:
-                pass
-    return trace
-
 
 def make_transformed_pe(potential_fn, transform, unpack_fn):
     def transformed_potential_fn(arg):
@@ -258,7 +163,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
     initial_params, potential_fn, transforms, prototype_trace = util.initialize_model(cond_model)
 
     if guidefile is not None:
-        guide = init_guide(cond_model, guidetype, guidefile = guidefile, device = device)
+        guide = init_guide(cond_model, guidetype, guidefile = guidefile)
         sample = guide()
         for key in initial_params.keys():
             initial_params[key] = transforms[key](sample[key].detach())
@@ -318,15 +223,15 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, n_write=10, device = 'cp
     """
 
     # Initialize VI model and guide
-    guide = init_guide(cond_model, guidetype, guidefile = guidefile, device = device)
+    guide = init_guide(cond_model, guidetype, guidefile = guidefile)
 
     optimizer = Adam({"lr": 1e-2, "amsgrad": True})
 
     # For some reason, JitTrace_ELBO breaks for CPU
     if device == 'cpu':
-        loss = Trace_ELBO(num_particles = 1)
+        loss = Trace_ELBO()
     else:
-        loss = Trace_ELBO(num_particles = 1)
+        loss = JitTrace_ELBO()
     svi = SVI(cond_model, guide, optimizer, loss=loss)
 
     for i in tqdm(range(n_steps)):
