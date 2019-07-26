@@ -225,12 +225,13 @@ def save_param_store(filename):
     """Saves the parameter store so optimization can be resumed later.
     """
 
-def load_param_store(paramfile):
+def load_param_store(paramfile, device = 'cpu'):
     """Loads the parameter store from the resume file.
     """
     pyro.clear_param_store()
     try:
-        pyro.get_param_store().load(paramfile)
+        print(device)
+        pyro.get_param_store().load(paramfile, map_location = device)
         print("Loading param_store file:", paramfile)
     except FileNotFoundError:
         print("...no resume file not found. Starting from scratch.")
@@ -256,9 +257,9 @@ def load_true_param(config):
 
     return true_params
 
-def init_guide(cond_model, guidetype, guidefile = None):
+def init_guide(cond_model, guidetype, guidefile = None, device = 'cpu'):
     if guidefile is not None:
-        load_param_store(guidefile)
+        load_param_store(guidefile, device = device)
     if guidetype == 'Delta':
         guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
     elif guidetype == 'DiagonalNormal':
@@ -424,7 +425,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
     initial_params, potential_fn, transforms, prototype_trace = util.initialize_model(cond_model)
 
     if guidefile is not None:
-        guide = init_guide(cond_model, guidetype, guidefile = guidefile)
+        guide = init_guide(cond_model, guidetype, guidefile = guidefile, device = device)
         sample = guide()
         for key in initial_params.keys():
             initial_params[key] = transforms[key](sample[key].detach())
@@ -511,7 +512,7 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, n_write=10, device = 'cp
     """
 
     # Initialize VI model and guide
-    guide = init_guide(cond_model, guidetype, guidefile = guidefile)
+    guide = init_guide(cond_model, guidetype, guidefile = guidefile, device = device)
 #
 #        # Run YAML parsers attached to model to populate initial values
 #        cond_model()
@@ -551,9 +552,9 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, n_write=10, device = 'cp
 
     # For some reason, JitTrace_ELBO breaks for CPU
     if device == 'cpu':
-        loss = Trace_ELBO()
+        loss = Trace_ELBO(num_particles = 1)
     else:
-        loss = JitTrace_ELBO()
+        loss = Trace_ELBO(num_particles = 1)
     svi = SVI(cond_model, guide, optimizer, loss=loss)
 
 
