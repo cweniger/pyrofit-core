@@ -382,7 +382,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
     transforms = None
 
     # For some reason, jit breaks on CPUs
-    jit_compile = device != 'cpu'
+    #jit_compile = device != 'cpu'
 
     # Set up NUTS kernel
 #    nuts_kernel = NUTS(
@@ -450,7 +450,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
         adapt_mass_matrix=True,
         full_mass=False,
         use_multinomial_sampling=True,
-        jit_compile=jit_compile,
+        jit_compile=False,
         max_tree_depth = 10,
         transforms = transforms,
         step_size = 1.)
