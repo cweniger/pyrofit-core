@@ -32,9 +32,10 @@ def onehot3d(x, shape = torch.Size()):
     assert len(shape) == 3, "Shape must be (D, H, W)."
     if shape[0] == 1:
         return onehot2d(x[:,1:], torch.Size([shape[1], shape[2]])).unsqueeze(0)
-    N = torch.tensor(shape)
-    M = torch.zeros(shape)
-    x = torch.where(x<torch.zeros(1), torch.zeros(1), torch.where(x >= N.float()-1, N.float()-1.001, x))
+    device = 'cpu' if not x.is_cuda else x.get_device()
+    N = torch.tensor(shape).to(device)
+    M = torch.zeros(shape, device = device)
+    x = torch.where(x<torch.zeros(1, device = device), torch.zeros(1, device = device), torch.where(x >= N.float()-1, N.float()-1.001, x))
     i = x.long()  # Obtain index tensor
     w = x-i.float()  # Obtain linear weights
     ifl = i[:,0]*N[2]*N[1]+i[:,1]*N[2]+i[:,2]
@@ -82,6 +83,11 @@ class OnehotConv2d:
             method (string): 'conv2d' or custom 'fft'-based implementation
             flip_kernel (bool): Flip kernel in x and y direction before convolving (default True).
         """
+        if kernel.is_cuda:
+            device = kernel.get_device()
+        else:
+            device = 'cpu'
+
         # Image shape
         assert len(shape) == 2, "shape must be (H, W)."
 
@@ -89,7 +95,8 @@ class OnehotConv2d:
         assert len(kernel.shape) == 3, "shape must be (C, kH, kW)."
         assert (kernel.shape[1] == kernel.shape[2]), "Kernel must be symmetric"
         if flip_kernel:
-            kernel = torch.tensor(np.array(kernel)[..., ::-1, ::-1].copy())
+            kernel = torch.tensor(np.array(kernel.to('cpu'))[..., ::-1,
+                ::-1].copy()).to(device)
         self.odd = (kernel[0].shape[0] % 2 == 1)
         self.kernel = kernel
 
@@ -111,7 +118,8 @@ class OnehotConv2d:
         if method == 'conv2d':
             self._my_call = self._eval_conv2d
         elif method == 'fft':
-            self.conv2dfft = ConvKernel2dFFT(self.kernel, self.hotshape_padded)
+            self.conv2dfft = ConvKernel2dFFT(self.kernel, self.hotshape_padded,
+                    device = device)
             print("FFT convolution shape:", self.hotshape_padded)
             self._my_call = self._eval_conv2dfft
 
@@ -348,9 +356,9 @@ def interp1d(xmin, xmax, n, log_x=False, log_y=False, device=None):
     def _interp1d(x, fgrid):
         i = torch.clamp(torch.floor((x-xmin)/dx), 0, n-1)
         j = torch.clamp(torch.floor((x-xmin)/dx)+1, 0, n-1)
-        w = torch.clamp((x-xmin)/dx - i, 0., 1.)
-        i = i.type(torch.long)
-        j = j.type(torch.long)
+        w = torch.clamp((x-xmin)/dx - i, 0., 1.).to(device)
+        i = i.type(torch.long).to(device)
+        j = j.type(torch.long).to(device)
         fint = fgrid[i]*(1-w) + fgrid[j]*w
         return fint
 
@@ -452,7 +460,7 @@ class ConvKernel2dFFT:
     def __init__(self, kernel, img_shape, device = 'cpu'):
         """Note: Kernel ordering same as conv2d."""
         self.device = device
-        kernel = torch.tensor(np.array(kernel)[...,::-1,::-1].copy())  # Flip kernel, in order to get same behaviour as conv2d
+        kernel = torch.tensor(np.array(kernel.to('cpu'))[...,::-1,::-1].copy()).to(device)  # Flip kernel, in order to get same behaviour as conv2d
         self._init_fft(kernel, img_shape)
         self.shape_k = kernel.shape
 
