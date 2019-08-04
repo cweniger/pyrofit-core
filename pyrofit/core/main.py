@@ -28,65 +28,6 @@ from . import yaml_params
 # Auxilliary functions
 ######################
 
-def get_components(yaml_entries, type_mapping, device='cpu'):
-    """Instantiates objects defined in the lens plane.
-
-    These may be defined in terms of convergences ('kappas' section in yaml) or
-    deflection fields ('alphas' section).
-
-    Parameters
-    ----------
-    X, Y : torch.Tensor, torch.Tensor
-        Lens plane meshgrids.
-    entries : dict
-        Config entries.
-    type_mapping : dict(str -> (Object, dict))
-        Mapping from 'type' field in config to the corresponding object and a
-        dict containing any extra initializer arguments.
-    device : str
-
-    Returns
-    -------
-    instances : list
-        Instances of the relevant classes.
-    """
-    if yaml_entries is None: return []
-
-    instances = []
-    for name, entry in yaml_entries.items():
-        entry_type = entry["type"]
-        parameters = entry.get("parameters", {})
-        options = entry.get("options", {})
-
-        # Parse option values
-        for key, val in options.items():
-            options[key] = yaml_params._parse_val(val, device=device)
-
-        sampler = yaml_params.yaml2sampler(name, parameters, device=device)
-
-        cls, args, kwargs = type_mapping[entry_type]
-        kwargs.update(options)
-        kwargs.update({"device": device})
-        instance = cls(sampler, *args, **kwargs)
-
-        instances.append(instance)
-    return instances
-
-def listify(val):
-    "Turns array into nested lists. Required for YAML output."
-    val = np.array(val)
-    if len(val.shape) == 0:
-        return float(val)
-    elif len(val.shape) == 1:
-        return list(val)
-    elif len(val.shape) == 2:
-        ret = []
-        for i in range(val.shape[0]):
-            ret.append(list(val[i]))
-        return str(ret)
-    else:
-        raise TypeError("Cannot write >2-dim tensors to yaml file")
-
 def get_conditioned_model(yaml_section, model, device='cpu'):
     if yaml_section is None:
         return model
@@ -94,11 +35,6 @@ def get_conditioned_model(yaml_section, model, device='cpu'):
     for name , val in yaml_section.items():
         conditions[name] = yaml_params._parse_val(val, device = device)
     return pyro.condition(model, conditions)
-
-
-##############
-# I/O Routines
-##############
 
 def load_param_store(paramfile):
     """Loads the parameter store from the resume file.
@@ -308,6 +244,9 @@ def save_mock(model, filename, use_init_values = True):
     np.savez(filename, **mock)
 
 
+########################
+# Command line interface
+########################
 
 @click.group()
 @click.option("--device", default = 'cpu', help="cpu (default) or cuda")

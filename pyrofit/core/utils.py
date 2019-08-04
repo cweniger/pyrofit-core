@@ -605,3 +605,48 @@ class PowerSpectrum2d:
     
     def __call__(self, img):
         return self._P2d(img)
+
+
+def get_components(yaml_entries, type_mapping, device='cpu'):
+    """Instantiates objects defined in the lens plane.
+
+    These may be defined in terms of convergences ('kappas' section in yaml) or
+    deflection fields ('alphas' section).
+
+    Parameters
+    ----------
+    X, Y : torch.Tensor, torch.Tensor
+        Lens plane meshgrids.
+    entries : dict
+        Config entries.
+    type_mapping : dict(str -> (Object, dict))
+        Mapping from 'type' field in config to the corresponding object and a
+        dict containing any extra initializer arguments.
+    device : str
+
+    Returns
+    -------
+    instances : list
+        Instances of the relevant classes.
+    """
+    if yaml_entries is None: return []
+
+    instances = []
+    for name, entry in yaml_entries.items():
+        entry_type = entry["type"]
+        parameters = entry.get("parameters", {})
+        options = entry.get("options", {})
+
+        # Parse option values
+        for key, val in options.items():
+            options[key] = yaml_params._parse_val(val, device=device)
+
+        sampler = yaml_params.yaml2sampler(name, parameters, device=device)
+
+        cls, args, kwargs = type_mapping[entry_type]
+        kwargs.update(options)
+        kwargs.update({"device": device})
+        instance = cls(sampler, *args, **kwargs)
+
+        instances.append(instance)
+    return instances
