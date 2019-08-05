@@ -17,29 +17,44 @@ def get_wrapped_class(name):
 # Dummy type definitions for type annotation parsing
 ####################################################
 
-YamlSet = TypeVar("YamlSet")
-YamlVar = TypeVar("YamlVar")
-
+Yaml = TypeVar("Yaml")
 
 
 ####################################
 # Read in and parse config yaml file
 ####################################
 
+def split_name(name):
+    if "[" in name and "]" in name:
+        i, j = name.find("["), name.find("]")
+        cls = name[i+1:j]
+        name = name[:i]
+        return name, cls
+    else:
+        return name, None
+
 YAML_CONFIG = None
 SETTINGS = defaultdict(lambda: {})
 VARIABLES = defaultdict(lambda: {})
+CLASSES = {}#defaultdict(lambda: None)
 def load_yaml(yamlfile):
     global YAML_CONFIG
     with open(yamlfile, "r") as stream:
         YAML_CONFIG = yaml.load(stream)
-    for name, entry in YAML_CONFIG.items():
-        if name in ['pyrofit', 'conditioning'] or entry is None:
+    for key, entry in YAML_CONFIG.items():
+        # Ignore reserved keyword entries
+        if key in ['pyrofit', 'conditioning'] or entry is None:
             continue
-        if 'variables' in entry.keys() and entry['variables'] is not None:
-            VARIABLES[name] = yaml2actions(name, entry['variables'])
-        if 'settings' in entry.keys() and entry['settings'] is not None:
-            SETTINGS[name] = yaml2settings(entry['settings'])
+        # If instance...
+        name, cls = split_name(key)
+        if cls is None:
+            VARIABLES[name] = yaml2actions(name, entry)
+        else:
+            if 'variables' in entry.keys() and entry['variables'] is not None:
+                VARIABLES[name] = yaml2actions(name, entry['variables'])
+            if 'settings' in entry.keys() and entry['settings'] is not None:
+                SETTINGS[name] = yaml2settings(entry['settings'])
+            CLASSES[name] = cls
     return YAML_CONFIG
 
 
@@ -51,8 +66,7 @@ def register(obj):
     """Register function or class for pyrofit use.
 
     This decorator has two effects:
-    - Replace arguments annotated with `YamlVar` or `YamlSet` by values
-      specified in the yaml initialization file.
+    - Replace arguments annotated with `Yaml` by vales specified in YAML file.
     - Prepend `name/` to all sampling site names, where `name` denotes either
       the function or the class instance.
     """
@@ -63,17 +77,11 @@ def register(obj):
 
 def _parse_signature(fn):
     sig = inspect.signature(fn)
-    params = [key for key in sig.parameters
-            if (sig.parameters[key].annotation != YamlVar)
-            and (sig.parameters[key].annotation != YamlSet)]
-    yaml_var = [key for key in sig.parameters
-            if sig.parameters[key].annotation == YamlVar]
-    yaml_set = [key for key in sig.parameters
-            if sig.parameters[key].annotation == YamlSet]
+    params = [key for key in sig.parameters if sig.parameters[key].annotation != Yaml]
+    yaml = [key for key in sig.parameters if sig.parameters[key].annotation == Yaml]
     params.sort()
-    yaml_var.sort()
-    yaml_set.sort()
-    return {'params':params, 'yaml_var': yaml_var, 'yaml_set': yaml_set}
+    yaml.sort()
+    return {'params':params, 'yaml': yaml}
 
 def _reg_fn(fn):
     # Prefix sample sites
@@ -88,19 +96,14 @@ def _reg_fn(fn):
         assert sorted(list(kwargs.keys())) == sig['params'], """
         '%s': keyword arguments %s expected, but %s given"""%(
                 name, str(sig['params']), str(list(kwargs)))
-        assert sorted(list(VARIABLES[name])) == sig['yaml_var'], """
+        assert sorted(list(VARIABLES[name])) == sig['yaml'], """
         '%s': yaml variables %s expected, but %s given"""%(
                 name, str(sig['yaml_var']), str(VARIABLES[name]))
-        assert sorted(list(SETTINGS[name])) == sig['yaml_set'], """
-        '%s': yaml settings %s expected, but %s given"""%(
-                name, str(sig['yaml_set']), str(SETTINGS[name]))
 
-        updates_set = {key: val for key, val in SETTINGS[name].items()}
-        updates_var = {key: val() for key, val in VARIABLES[name].items()}
+        updates = {key: val() for key, val in VARIABLES[name].items()}
 
         # Update kwargs and run wrapped function
-        kwargs.update(updates_var)
-        kwargs.update(updates_set)
+        kwargs.update(updates)
         return fn(**kwargs)
 
     return wrapped_fn
@@ -111,11 +114,7 @@ def _reg_cls(cls):
 
     # Inspect __init__ function signature
     sig_init = _parse_signature(cls.__init__)
-    assert len(sig_init['yaml_var']) == 0, """
-    '%s': No YamlVar allowed in __init__ method"""%name
     sig_call = _parse_signature(cls.__call__)
-    assert len(sig_call['yaml_set']) == 0, """
-    '%s': No YamlSet allowed in __call__ method"""%name
 
     class Wrapped(cls):
         def __init__(self, name, **kwargs):
@@ -146,6 +145,7 @@ def instantiate(start, **kwargs):
         if name in ['pyrofit', 'conditioning']:
             continue
         if name.startswith(start):
-            cls_name = YAML_CONFIG[name]['class']
+            name, cls_name = split_name(name)
+            #cls_name = YAML_CONFIG[name]['class']
             result[name] = get_wrapped_class(cls_name)(name, **kwargs)
     return result

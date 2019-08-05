@@ -6,10 +6,8 @@ conditioning:
   # prepended with function name
   linear/y: [5., 4., 3., 2., 1.]
 linear:  # Function name
-  settings:  # Passed into 'YamlSet' annotated parameters
-    x: [1., 2., 3., 4., 5.]
-  variables:  # Passed into 'YamlVar' annotated parameters
-    a:
-      sample: [dist.Uniform, -10., 10.]
-    b:
-      sample: [dist.Uniform, -10., 10.]
+  x: [1., 2., 3., 4., 5.]
+  a:
+    sample: [dist.Uniform, -10., 10.]
+  b:
+    sample: [dist.Uniform, -10., 10.]

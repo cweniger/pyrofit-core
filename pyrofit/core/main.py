@@ -16,7 +16,7 @@ from pyro.contrib.autoguide import (AutoDelta, AutoLowRankMultivariateNormal,
         AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal,
         init_to_sample)
 import pyro.distributions as dist
-from pyro.infer import SVI, Trace_ELBO
+from pyro.infer import SVI, Trace_ELBO, JitTrace_ELBO
 from pyro.infer.mcmc import MCMC, NUTS, util
 from pyro.optim import Adam
 #from ruamel.yaml import YAML
@@ -172,7 +172,7 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, n_write=10, device = 'cp
     if device == 'cpu':
         loss = Trace_ELBO()
     else:
-        loss = JitTrace_ELBO()
+        loss = Trace_ELBO()
     svi = SVI(cond_model, guide, optimizer, loss=loss)
 
     for i in tqdm(range(n_steps)):
@@ -272,10 +272,11 @@ def cli(ctx, device, yamlfile):
 
     # Get model...
     model_name = yaml_config['pyrofit']['model']
-    model = getattr(my_module, model_name)
-    # ...and instantiate if it turns out to be a class
-    if inspect.isclass(model):
-        model = decorators.get_wrapped_class(model_name)(model_name)
+    try:
+        model = getattr(my_module, model_name)
+    except AttributeError:
+        # And try to instantiate if necessary
+        model = decorators.instantiate(model_name)[model_name]
 
     # Pass on information
     ctx.obj['device'] = device
