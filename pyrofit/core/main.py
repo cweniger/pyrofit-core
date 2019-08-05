@@ -18,11 +18,13 @@ import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
 from pyro.infer.mcmc import MCMC, NUTS, util
 from pyro.optim import Adam
-from ruamel.yaml import YAML
-yaml = YAML()
+#from ruamel.yaml import YAML
+#yaml = YAML()
+import yaml
 from tqdm import tqdm
 
 from . import yaml_params
+from .decorators import load_yaml
 
 ######################
 # Auxilliary functions
@@ -34,7 +36,8 @@ def get_conditioned_model(yaml_section, model, device='cpu'):
     conditions = {}
     for name , val in yaml_section.items():
         conditions[name] = yaml_params._parse_val(val, device = device)
-    return pyro.condition(model, conditions)
+    cond_model = pyro.condition(model, conditions)
+    return cond_model
 
 def load_param_store(paramfile):
     """Loads the parameter store from the resume file.
@@ -257,13 +260,15 @@ def cli(ctx, device, yamlfile):
     """This is pyrofit."""
     ctx.ensure_object(dict)
 
-    with open(yamlfile, "r") as stream:
-        yaml_config = yaml.load(stream)
+#    with open(yamlfile, "r") as stream:
+        #yaml_config = yaml.load(stream)
+    yaml_config = load_yaml(yamlfile)
 
     # Generate model
-    module_name = yaml_config['pyrofit_module']
+    module_name = yaml_config['pyrofit']['module']
+    model_name = yaml_config['pyrofit']['model']
     my_module = importlib.import_module("pyrofit."+module_name)
-    model = my_module.get_model(yaml_config, device=device)
+    model = getattr(my_module, model_name)
 
     # Pass on information
     ctx.obj['device'] = device

@@ -1,9 +1,20 @@
+from typing import TypeVar
 import inspect
-from yaml_parser2 import yaml2actions, yaml2settings
+import yaml
+from pyro.contrib.autoname import scope
+from .yaml_params2 import yaml2actions, yaml2settings
+
+YamlSet = TypeVar("YamlSet")
+YamlVar = TypeVar("YamlVar")
 
 YAML_CONFIG = None
+def load_yaml(yamlfile):
+    global YAML_CONFIG
+    with open(yamlfile, "r") as stream:
+        YAML_CONFIG = yaml.load(stream)
+    return YAML_CONFIG
 
-def reg(obj):
+def register(obj):
     if inspect.isclass(obj):
         return _reg_cls(obj)
     else:
@@ -11,12 +22,13 @@ def reg(obj):
 
 def _reg_fn(fn):
     name = fn.__qualname__
+    fn = scope(fn, prefix = name)  # Prefix sample sites
     try:
-        params = YAML_CONFIG[name]['params']
-    except KeyError:
+        variables = YAML_CONFIG[name]['variables']
+    except (KeyError, TypeError):
         # Just return function if not mentioned in YAML file
         return fn
-    actions = yaml2actions(name, params)
+    actions = yaml2actions(name, variables)
     def wrapped_fn(**kwargs):
         updates = {key: val() for key, val in actions.items()}
         kwargs.update(updates)
@@ -28,14 +40,15 @@ def _reg_cls(cls):
     class Wrapped(cls):
         def __init__(self, name, **kwargs):
             try:
-                params = YAML_CONFIG[name]['params']
-            except KeyError:
+                variables = YAML_CONFIG[name]['variables']
+            except (KeyError, TypeError):
                 self.pyrofit_actions = {}
             else:
-                self.pyrofit_actions = yaml2actions(name, YAML_CONFIG[name]['params'])
+                self.pyrofit_actions = yaml2actions(name,
+                        YAML_CONFIG[name]['variables'])
             try:
                 yaml_settings = YAML_CONFIG[name]['settings']
-            except KeyError:
+            except (KeyError, TypeError):
                 settings = {}
             else:
                 settings = yaml2settings(YAML_CONFIG[name]['settings'])
