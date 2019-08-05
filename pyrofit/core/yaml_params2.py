@@ -28,58 +28,61 @@ def get_init_values():
 # Auxilliary functions
 ######################
 
-def _parse_val(val, device='cpu', dtype = torch.float32):
+def _parse_val(key, val, device='cpu', dtype = torch.float32):
     """Parse input value.  Note special treatment for augmented strings.
     """
-    if isinstance(val, str):
-        if val[:6] == "$EVAL ":
-            tmp = eval(val[6:])
-        elif val[:5] == "$NPY ":
-            tmp = np.load(val[5:])
-        elif val[:5] == "$NPZ ":
-            i, j = val.find("["), val.find("]")
-            if i > -1:  # If "[...]" given, use that as tag
-                name = val[i+1:j]
-                tmp = np.load(val[5:i])[name]
+    try:
+        if isinstance(val, str):
+            if val[:6] == "$EVAL ":
+                tmp = eval(val[6:])
+            elif val[:5] == "$NPY ":
+                tmp = np.load(val[5:])
+            elif val[:5] == "$NPZ ":
+                i, j = val.find("["), val.find("]")
+                if i > -1:  # If "[...]" given, use that as tag
+                    name = val[i+1:j]
+                    tmp = np.load(val[5:i])[name]
+                else:
+                    tmp = np.load(val[5:])[key]
+            elif val[:5] == "$CSV ":
+                tmp = np.genfromtxt(val)
             else:
-                tmp = np.load(val[5:])[name]
-        elif val[:5] == "$CSV ":
-            tmp = np.genfromtxt(val)
+                return val
         else:
-            return val
-    else:
-        tmp = val
-    if isinstance(tmp, torch.Tensor):
-        return tmp.to(device)
-    else:
-        return torch.tensor(tmp, dtype=dtype, device=device)
+            tmp = val
+        if isinstance(tmp, torch.Tensor):
+            return tmp.to(device)
+        else:
+            return torch.tensor(tmp, dtype=dtype, device=device)
+    except ValueError:
+        raise ValueError("trying to parse %s"%str(val))
 
-def _entry2action(val, device):
+def _entry2action(key, val, device):
     global INIT_VALUES
 
     # Parse non-dict values as fixed values
     if not isinstance(val, dict):
-        val = _parse_val(val, device=device)
+        val = _parse_val(key, val, device=device)
         return lambda param: val
     keys = list(val.keys())
     keys.sort()
     if keys == ['init']:
-        val = _parse_val(val['init'], device=device)
+        val = _parse_val(key, val['init'], device=device)
         return lambda param: val
     if keys == ['sample']:
         fn = eval(val['sample'][0])
-        args = [_parse_val(x, device=device) for x in val['sample'][1:]]
+        args = [_parse_val(key, x, device=device) for x in val['sample'][1:]]
         return lambda param: pyro.sample(param, fn(*args))
     if keys == ['init', 'sample']:
         fn = eval(val['sample'][0])
-        args = [_parse_val(x, device=device) for x in val['sample'][1:]]
+        args = [_parse_val(key, x, device=device) for x in val['sample'][1:]]
         if "init" in val.keys():
-            infer = {'init': _parse_val(val['init'], device=device)}
+            infer = {'init': _parse_val(key, val['init'], device=device)}
         else:
             infer = None
         return lambda param: pyro.sample(param, fn(*args), infer = infer)
     if keys == ['param']:
-        arg = _parse_val(val['param'], device=device)
+        arg = _parse_val(key, val['param'], device=device)
         return lambda param: pyro.param(param, arg)
     raise KeyError("Incompatible parameter spection entries.")
 
@@ -126,7 +129,7 @@ def yaml2settings(yaml_params, device='cpu'):
     # including reading *.npy files from disk.  Needs speed-up.
     settings = {}
     for key, val in yaml_params.items():
-        settings[key] = _parse_val(val, device)
+        settings[key] = _parse_val(key, val, device)
     return settings
 
 def yaml2actions(name, yaml_params, device='cpu'):
@@ -172,7 +175,7 @@ def yaml2actions(name, yaml_params, device='cpu'):
     # including reading *.npy files from disk.  Needs speed-up.
     actions = {}
     for key, val in yaml_params.items():
-        action = _entry2action(val, device)
+        action = _entry2action(key, val, device)
         actions[key] = lambda action = action, par_name = name+"/"+key: action(par_name)
 
     return actions

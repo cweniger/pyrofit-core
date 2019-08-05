@@ -24,7 +24,7 @@ from pyro.optim import Adam
 import yaml
 from tqdm import tqdm
 
-from . import yaml_params
+from . import yaml_params2
 from . import decorators
 
 
@@ -37,7 +37,7 @@ def get_conditioned_model(yaml_section, model, device='cpu'):
         return model
     conditions = {}
     for name , val in yaml_section.items():
-        conditions[name] = yaml_params._parse_val(val, device = device)
+        conditions[name] = yaml_params2._parse_val(name, val, device = device)
     cond_model = pyro.condition(model, conditions)
     return cond_model
 
@@ -234,7 +234,7 @@ def save_posterior_predictive(model, guide, filename):
     np.savez(filename, **mock)
 
 def save_mock(model, filename, use_init_values = True):
-    yaml_params.set_fix_all(use_init_values)
+    yaml_params2.set_fix_all(use_init_values)
 
     traced_model = poutine.trace(model)
     trace = traced_model.get_trace()

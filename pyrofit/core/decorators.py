@@ -11,7 +11,10 @@ from .yaml_params2 import yaml2actions, yaml2settings
 
 CLS_LIST = {}
 def get_wrapped_class(name):
-    return CLS_LIST[name]
+    try:
+        return CLS_LIST[name]
+    except KeyError:
+        raise KeyError("class %s unknown"%name)
 
 ####################################################
 # Dummy type definitions for type annotation parsing
@@ -123,7 +126,7 @@ def _reg_cls(cls):
                 cls.__init__(self, **kwargs)
             updates_set = {key: val for key, val in SETTINGS[name].items()}
             kwargs.update(updates_set)
-            return scope(cls.__init__, prefix = name)(self, **kwargs)
+            return scope(cls.__init__, prefix = self._pyrofit_instance_name)(self, **kwargs)
 
         def __call__(self, **kwargs):
             if self._pyrofit_instance_name is None:
@@ -131,7 +134,7 @@ def _reg_cls(cls):
             updates_var = {key: val() for key, val in 
                     VARIABLES[self._pyrofit_instance_name].items()}
             kwargs.update(updates_var)
-            return scope(cls.__call__, prefix = name)(self, **kwargs)
+            return scope(cls.__call__, prefix = self._pyrofit_instance_name)(self, **kwargs)
 
     # Register wrapped class name
     CLS_LIST[name] = Wrapped

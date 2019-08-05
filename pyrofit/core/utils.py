@@ -638,9 +638,9 @@ def get_components(yaml_entries, type_mapping, device='cpu'):
 
         # Parse option values
         for key, val in options.items():
-            options[key] = yaml_params._parse_val(val, device=device)
+            options[key] = yaml_params2._parse_val(val, device=device)
 
-        sampler = yaml_params.yaml2sampler(name, parameters, device=device)
+        sampler = yaml_params2.yaml2sampler(name, parameters, device=device)
 
         cls, args, kwargs = type_mapping[entry_type]
         kwargs.update(options)
