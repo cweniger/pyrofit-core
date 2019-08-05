@@ -1,0 +1,15 @@
+pyrofit:
+  module: examples.minimal
+  model: linear  # Function name
+conditioning:
+  # Sample site names are (internally and for the purpose of conditioning)
+  # prepended with function name
+  linear/y: [5., 4., 3., 2., 1.]
+linear:  # Function name
+  settings:  # Passed into 'YamlSet' annotated parameters
+    x: [1., 2., 3., 4., 5.]
+  variables:  # Passed into 'YamlVar' annotated parameters
+    a:
+      sample: [dist.Uniform, -10., 10.]
+    b:
+      sample: [dist.Uniform, -10., 10.]

@@ -1,0 +1,16 @@
+pyrofit:
+  module: examples.minimal
+  model: Quadratic  # Class name
+conditioning:
+  Quadratic/y: [5., 4., 3., 2., 1.]
+# Note that model-class is automatically instantiated with instance-name = class-name
+Quadratic:
+  settings:
+    x: [1., 2., 3., 4., 5.]
+  variables:
+    a:
+      sample: [dist.Uniform, -10., 10.]
+    b:
+      sample: [dist.Uniform, -10., 10.]
+    c:
+      sample: [dist.Uniform, -10., 10.]

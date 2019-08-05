@@ -1,0 +1,43 @@
+pyrofit:
+  module: examples.minimal
+  model: SpecModel
+conditioning:
+  SpecModel/spec: "$NPZ mock.npz[SpecModel/spec]"
+# Note that model-class is automatically instantiated with instance-name = class-name
+SpecModel:
+  settings:
+    xgrid: "$EVAL torch.linspace(-5., 5., 1000)"
+  variables:
+    a:
+      sample: [dist.Uniform, -1., 1.]
+    b:
+      sample: [dist.Uniform, -1., 1.]
+source1:
+  # Since `source1` is not a function name, it is interpreted as instance of
+  # class `Source`.
+  class: Source  
+  variables:
+    x0:
+      sample: [dist.Uniform, -5., 5.]
+    h0:
+      sample: [dist.Uniform, 0., 10.]
+    w0:
+      sample: [dist.Uniform, 0., 1.]
+source2:
+  class: Source
+  variables:
+    x0:
+      sample: [dist.Uniform, -5., 5.]
+    h0:
+      sample: [dist.Uniform, 0., 10.]
+    w0:
+      sample: [dist.Uniform, 0., 1.]
+source3:
+  class: Source
+  variables:
+    x0:
+      sample: [dist.Uniform, -5., 5.]
+    h0:
+      sample: [dist.Uniform, 0., 10.]
+    w0:
+      sample: [dist.Uniform, 0., 1.]
