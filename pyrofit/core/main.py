@@ -8,6 +8,7 @@
 import click
 import numpy as np
 import importlib
+import inspect
 import torch
 import pyro
 from pyro import poutine
@@ -24,7 +25,8 @@ import yaml
 from tqdm import tqdm
 
 from . import yaml_params
-from .decorators import load_yaml
+from . import decorators
+
 
 ######################
 # Auxilliary functions
@@ -262,13 +264,18 @@ def cli(ctx, device, yamlfile):
 
 #    with open(yamlfile, "r") as stream:
         #yaml_config = yaml.load(stream)
-    yaml_config = load_yaml(yamlfile)
+    yaml_config = decorators.load_yaml(yamlfile)
 
-    # Generate model
+    # Import module
     module_name = yaml_config['pyrofit']['module']
-    model_name = yaml_config['pyrofit']['model']
     my_module = importlib.import_module("pyrofit."+module_name)
+
+    # Get model...
+    model_name = yaml_config['pyrofit']['model']
     model = getattr(my_module, model_name)
+    # ...and instantiate if it turns out to be a class
+    if inspect.isclass(model):
+        model = decorators.get_wrapped_class(model_name)(model_name)
 
     # Pass on information
     ctx.obj['device'] = device
