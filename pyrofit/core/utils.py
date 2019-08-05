@@ -560,7 +560,6 @@ class ConvKernel2d(nn.Module):
         ret = torch.irfft(fft_prod, 2, onesided=False)
         return ret[self.shift[0]:self.shift[0]+self.s2[0], self.shift[1]:self.shift[1]+self.s2[1]]
 
-
 class PowerSpectrum2d:
     def __init__(self, shape, nbins):
         """Calculate binned power spectrum of 2-dim images.

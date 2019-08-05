@@ -119,14 +119,20 @@ def _reg_cls(cls):
 
     class Wrapped(cls):
         def __init__(self, name, **kwargs):
+            self._pyrofit_instance_name = name
+            if self._pyrofit_instance_name is None:
+                cls.__init__(self, **kwargs)
             updates_set = {key: val for key, val in SETTINGS[name].items()}
             kwargs.update(updates_set)
-            scope(cls.__init__, prefix = name)(self, **kwargs)
+            return scope(cls.__init__, prefix = name)(self, **kwargs)
 
         def __call__(self, **kwargs):
-            updates_var = {key: val() for key, val in VARIABLES[name].items()}
+            if self._pyrofit_instance_name is None:
+                cls.__call__(self, **kwargs)
+            updates_var = {key: val() for key, val in 
+                    VARIABLES[self._pyrofit_instance_name].items()}
             kwargs.update(updates_var)
-            scope(cls.__call__, prefix = name)(self, **kwargs)
+            return scope(cls.__call__, prefix = name)(self, **kwargs)
 
     # Register wrapped class name
     CLS_LIST[name] = Wrapped
