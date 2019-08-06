@@ -2,6 +2,7 @@ from typing import TypeVar
 from collections import defaultdict
 import inspect
 import yaml
+import re
 from pyro.contrib.autoname import scope
 from .yaml_params2 import yaml2actions, yaml2settings
 
@@ -21,6 +22,7 @@ def get_wrapped_class(name):
 ####################################################
 
 Yaml = TypeVar("Yaml")
+RESERVED = ['pyrofit', 'conditioning']
 
 
 ####################################
@@ -46,7 +48,7 @@ def load_yaml(yamlfile):
         YAML_CONFIG = yaml.load(stream)
     for key, entry in YAML_CONFIG.items():
         # Ignore reserved keyword entries
-        if key in ['pyrofit', 'conditioning'] or entry is None:
+        if key in RESERVED or entry is None:
             continue
         # If instance...
         name, cls = split_name(key)
@@ -138,17 +140,19 @@ def _reg_cls(cls):
 
     # Register wrapped class name
     CLS_LIST[name] = Wrapped
-
     return Wrapped
 
-def instantiate(start, **kwargs):
-    names = YAML_CONFIG.keys()
+def instantiate(names = None, regex = None, **kwargs):
+    """Instantiate classes listed in YAML file."""
     result = {}
-    for name in names:
-        if name in ['pyrofit', 'conditioning']:
-            continue
-        if name.startswith(start):
-            name, cls_name = split_name(name)
-            #cls_name = YAML_CONFIG[name]['class']
-            result[name] = get_wrapped_class(cls_name)(name, **kwargs)
+    names = [names] if isinstance(names, str) else names
+    for key in YAML_CONFIG.keys():
+        if key in RESERVED:
+            continue  # Ignore reserved entries
+        inst_name, cls_name = split_name(key)
+        if cls_name is None:
+            continue  # Ignore function entries
+        if ((True if regex is None else re.search(regex, inst_name)) and 
+                (True if names is None else inst_name in names)):
+            result[inst_name] = get_wrapped_class(cls_name)(inst_name, **kwargs)
     return result

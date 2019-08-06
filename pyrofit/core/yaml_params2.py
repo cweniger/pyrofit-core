@@ -11,6 +11,7 @@ from pyro.contrib.autoname import named
 import pyro.distributions as dist
 #from .utils import LogUniform
 #from .utils import TruncatedNormal
+from torch.distributions import constraints
 
 INIT_VALUES = {}
 FIX_ALL = False
@@ -84,7 +85,10 @@ def _entry2action(key, val, device):
     if keys == ['param']:
         arg = _parse_val(key, val['param'], device=device)
         return lambda param: pyro.param(param, arg)
-    raise KeyError("Incompatible parameter spection entries.")
+    if keys == ['constraint', 'param']:
+        arg = _parse_val(key, val['param'], device=device)
+        return lambda param: pyro.param(param, arg, constraint = eval(val['constraint']))
+    raise KeyError("Incompatible parameter spection entries with keys %s"%str(keys))
 
 def yaml2settings(yaml_params, device='cpu'):
     """Import YAML dictionary and pass it as `pyro.contrib.autoname.named`

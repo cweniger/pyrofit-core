@@ -244,7 +244,7 @@ def save_mock(model, filename, use_init_values = True):
         entry = trace.nodes[tag]
         # Only save sampled components
         if entry['type'] == 'sample':
-            mock[tag] = entry['value'].cpu().numpy()
+            mock[tag] = entry['value'].cpu().detach().numpy()
 
     np.savez(filename, **mock)
 
@@ -325,7 +325,10 @@ def sample(ctx, warmup_steps, n_steps, guidetype, guidefile):
 def mock(ctx, mockfile):
     """Create mock data based on yaml file."""
     model = ctx.obj['model']
-    save_mock(model, filename = mockfile)
+    device = ctx.obj['device']
+    yaml_config = ctx.obj['yaml_config']
+    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
+    save_mock(cond_model, filename = mockfile)
 
 @cli.command()
 @click.option("--guidetype", default = "Delta")
