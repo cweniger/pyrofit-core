@@ -120,7 +120,7 @@ class OnehotConv2d:
         elif method == 'fft':
             self.conv2dfft = ConvKernel2dFFT(self.kernel, self.hotshape_padded,
                     device = device)
-            print("FFT convolution shape:", self.hotshape_padded)
+            #print("FFT convolution shape:", self.hotshape_padded)
             self._my_call = self._eval_conv2dfft
 
     def __call__(self, v):
@@ -140,7 +140,7 @@ class OnehotConv2d:
         M = onehot3d(x, shape = self.hotshape)
         M_padded = func.pad(M, (self.padding-self.o, self.padding,
                                 self.padding-self.o, self.padding))
-        print(M_padded.shape)
+        #print(M_padded.shape)
         R = self._my_call(M_padded)
         if self.odd:
             return R

@@ -47,9 +47,9 @@ def load_param_store(paramfile):
     pyro.clear_param_store()
     try:
         pyro.get_param_store().load(paramfile)
-        print("Loading param_store file:", paramfile)
+        print("Loading guide:", paramfile)
     except FileNotFoundError:
-        print("...no resume file not found. Starting from scratch.")
+        print("Could not open %s. Starting with fresh guide."%paramfile)
 
 def init_guide(cond_model, guidetype, guidefile = None):
     if guidefile is not None:
@@ -69,6 +69,7 @@ def init_guide(cond_model, guidetype, guidefile = None):
     return guide
 
 def save_guide(guidetype, guidefile):
+    print("Saving guide:", guidefile)
     pyro.get_param_store().save(guidefile)
 
 
@@ -273,6 +274,21 @@ def save_mock(model, filename, use_init_values = True):
 def cli(ctx, device, yamlfile):
     """This is pyrofit."""
     ctx.ensure_object(dict)
+    print(
+        """
+         (                         (                 
+         )\ )                      )\ )           )  
+        (()/(   (      (          (()/(   (    ( /(  
+         /(_))  )\ )   )(     (    /(_))  )\   )\()) 
+        (_))   (()/(  (()\    )\  (_))_| ((_) (_))/  
+        | _ \   )(_))  ((_)  ((_) | |_    (_) | |_   
+        |  _/  | || | | '_| / _ \ | __|   | | |  _|  
+        |_|     \_, | |_|   \___/ |_|     |_|  \__|  
+                |__/                                 
+
+           high-dimensional models and inference
+        """
+    )
 
 #    with open(yamlfile, "r") as stream:
         #yaml_config = yaml.load(stream)
