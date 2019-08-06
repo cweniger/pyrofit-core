@@ -119,9 +119,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
 
     def fun(*args, **kwargs):
         res = potential_fn(*args, **kwargs)
-        print(res)
         return res
-
 
     nuts_kernel = NUTS(
         potential_fn = fun,
@@ -141,7 +139,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
         num_chains=n_chains).run()
 
 
-def infer_VI(cond_model, guidetype, guidefile, n_steps, n_write=10, device = 'cpu'):
+def infer_VI(cond_model, guidetype, guidefile, n_steps, n_write=100, device = 'cpu'):
     """Runs MAP parameter inference.
 
     Regularly saves the parameter and loss values. Also saves the pyro
@@ -175,18 +173,32 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, n_write=10, device = 'cp
         loss = Trace_ELBO()
     svi = SVI(cond_model, guide, optimizer, loss=loss)
 
-    for i in tqdm(range(n_steps)):
-        if i % n_write == 0:
-            for name, value in pyro.get_param_store().items():
-                tqdm.write(name + ": " + str(value))
+    print()
+    print("##################")
+    print("# Initial values #")
+    print("##################")
+    for name, value in pyro.get_param_store().items():
+        print(name + ": " + str(value))
+    print()
 
-            if i > 0:
+    print("##############")
+    print("# Optimizing #")
+    print("##############")
+    with tqdm(total = n_steps) as t:
+        for i in range(n_steps):
+            if i % n_write == 0:
                 pyro.get_param_store().save(guidefile)
-            tqdm.write("")
+            loss = svi.step()
+            t.postfix = "loss=%.3f"%loss
+            t.update()
 
-        loss = svi.step()
-        if i % n_write == 0:
-            tqdm.write("Loss: " + str(loss))
+    print()
+    print("################")
+    print("# Final values #")
+    print("################")
+    for name, value in pyro.get_param_store().items():
+        print(name + ": " + str(value))
+    print()
 
     save_guide(guidetype, guidefile)
 
