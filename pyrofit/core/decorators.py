@@ -42,7 +42,7 @@ YAML_CONFIG = None
 SETTINGS = defaultdict(lambda: {})
 VARIABLES = defaultdict(lambda: {})
 CLASSES = {}#defaultdict(lambda: None)
-def load_yaml(yamlfile):
+def load_yaml(yamlfile, device = 'cpu'):
     global YAML_CONFIG
     with open(yamlfile, "r") as stream:
         YAML_CONFIG = yaml.load(stream)
@@ -53,12 +53,12 @@ def load_yaml(yamlfile):
         # If instance...
         name, cls = split_name(key)
         if cls is None:
-            VARIABLES[name] = yaml2actions(name, entry)
+            VARIABLES[name] = yaml2actions(name, entry, device = device)
         else:
             if 'variables' in entry.keys() and entry['variables'] is not None:
-                VARIABLES[name] = yaml2actions(name, entry['variables'])
+                VARIABLES[name] = yaml2actions(name, entry['variables'], device = device)
             if 'settings' in entry.keys() and entry['settings'] is not None:
-                SETTINGS[name] = yaml2settings(entry['settings'])
+                SETTINGS[name] = yaml2settings(entry['settings'], device = device)
             CLASSES[name] = cls
     return YAML_CONFIG
 
@@ -128,7 +128,12 @@ def _reg_cls(cls):
                 cls.__init__(self, **kwargs)
             updates_set = {key: val for key, val in SETTINGS[name].items()}
             kwargs.update(updates_set)
-            return scope(cls.__init__, prefix = self._pyrofit_instance_name)(self, **kwargs)
+            try:
+                scoped_init = scope(cls.__init__, prefix = self._pyrofit_instance_name)(self, **kwargs)
+            except TypeError as e:
+                print("...while instantiating", name)
+                raise KeyError(str(e))
+            return scoped_init
 
         def __call__(self, **kwargs):
             if self._pyrofit_instance_name is None:

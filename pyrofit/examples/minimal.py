@@ -43,7 +43,7 @@ class Source:
 class SpecModel:
     def __init__(self, xgrid:Yaml):
         self.xgrid = xgrid
-        self.sources = instantiate("source", xgrid = xgrid)  # Assumed to be compatible with 'Source' class
+        self.sources = instantiate(regex="source.*", xgrid = xgrid)  # Assumed to be compatible with 'Source' class
 
     def __call__(self, a:Yaml, b:Yaml):
         spec = sum([source() for _, source in self.sources.items()])

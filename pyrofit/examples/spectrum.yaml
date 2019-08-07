@@ -2,7 +2,7 @@ pyrofit:
   module: examples.minimal
   model: specModel
 conditioning:
-  SpecModel/spec: "$NPZ mock.npz[SpecModel/spec]"
+  #SpecModel/spec: "$NPZ mock.npz[SpecModel/spec]"
 # Note that model-class is automatically instantiated with instance-name = class-name
 specModel[SpecModel]:
   settings:
