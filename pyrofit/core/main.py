@@ -304,7 +304,7 @@ def cli(ctx, device, yamlfile):
         model = getattr(my_module, model_name)
     except AttributeError:
         # And try to instantiate if necessary
-        model = decorators.instantiate(model_name)[model_name]
+        model = decorators.instantiate(model_name, device = device)[model_name]
 
     # Pass on information
     ctx.obj['device'] = device
