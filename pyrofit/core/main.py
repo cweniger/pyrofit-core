@@ -243,7 +243,7 @@ def save_posterior_predictive(model, guide, filename):
     for tag in trace:
         entry = trace.nodes[tag]
         if entry['type'] == 'sample':
-            mock[tag] = entry['value'].detach().numpy()
+            mock[tag] = entry['value'].detach().cpu().numpy()
     np.savez(filename, **mock)
 
 def save_mock(model, filename, use_init_values = True):
@@ -304,7 +304,7 @@ def cli(ctx, device, yamlfile):
         model = getattr(my_module, model_name)
     except AttributeError:
         # And try to instantiate if necessary
-        model = decorators.instantiate(model_name)[model_name]
+        model = decorators.instantiate(model_name, device = device)[model_name]
 
     # Pass on information
     ctx.obj['device'] = device
