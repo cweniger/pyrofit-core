@@ -243,7 +243,7 @@ def save_posterior_predictive(model, guide, filename):
     for tag in trace:
         entry = trace.nodes[tag]
         if entry['type'] == 'sample':
-            mock[tag] = entry['value'].detach().numpy()
+            mock[tag] = entry['value'].detach().cpu().numpy()
     np.savez(filename, **mock)
 
 def save_mock(model, filename, use_init_values = True):

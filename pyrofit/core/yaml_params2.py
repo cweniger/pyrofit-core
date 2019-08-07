@@ -88,7 +88,7 @@ def _entry2action(key, val, device):
     if keys == ['constraint', 'param']:
         arg = _parse_val(key, val['param'], device=device)
         return lambda param: pyro.param(param, arg, constraint = eval(val['constraint']))
-    raise KeyError("Incompatible parameter spection entries with keys %s"%str(keys))
+    raise KeyError("Incompatible parameter section entries with keys %s"%str(keys))
 
 def yaml2settings(yaml_params, device='cpu'):
     """Import YAML dictionary and pass it as `pyro.contrib.autoname.named`
