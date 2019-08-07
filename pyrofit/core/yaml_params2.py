@@ -9,6 +9,7 @@ import pyro
 from pyro.contrib.autoname import named
 # These may be needed by the eval statements below
 import pyro.distributions as dist
+from . import distributions as newdist
 #from .utils import LogUniform
 #from .utils import TruncatedNormal
 from torch.distributions import constraints
