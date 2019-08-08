@@ -7,6 +7,9 @@ setup(
     packages=['pyrofit.core', 'pyrofit.examples'],
     install_requires=[
         'Click',
+        'pyyaml',
+        'pyro-ppl',
+        'pypandoc'
     ],
     entry_points='''
         [console_scripts]

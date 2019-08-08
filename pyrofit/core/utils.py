@@ -8,8 +8,6 @@ from torch.distributions.transformed_distribution import (
     TransformedDistribution)
 from torch.distributions.transforms import ExpTransform
 
-from scipy.integrate import quad
-
 import pyro
 from pyro import distributions as dist
 
