@@ -8,11 +8,16 @@ from torch.distributions.transformed_distribution import (
 from torch.distributions import Normal
 from torch.distributions.transforms import PowerTransform, ExpTransform
 import pyro.distributions as dist
+from torch.distributions import constraints
 
 class _TruncatedPower(TransformedDistribution):
+    arg_constraints = {'low': constraints.positive, 'high': constraints.positive}
+    has_rsample = True
+
     def __init__(self, low, high, alpha):
         if alpha == -1.:
             raise ValueError("Not implemented for alpha = -1")
+        self.support = constraints.interval(low**(alpha+1), high**(alpha+1))
         base_dist = torch.distributions.Uniform(low**(alpha+1), high**(alpha+1))
         super(_TruncatedPower, self).__init__(base_dist, [PowerTransform(1/(alpha+1))])
 
