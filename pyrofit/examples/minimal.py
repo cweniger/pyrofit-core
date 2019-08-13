@@ -19,8 +19,9 @@ def linear(a:Yaml, b:Yaml, x:Yaml):
 
 @register
 class Quadratic:
-    def __init__(self, x:Yaml):
+    def __init__(self, x:Yaml, device = 'cpu'):
         self.x = x
+        self.device = device
 
     def __call__(self, a:Yaml, b:Yaml, c:Yaml):
         pyro.sample("y", dist.Normal(a + b*self.x + c*self.x**2, 1.0))
@@ -32,8 +33,9 @@ class Quadratic:
 
 @register
 class Source:
-    def __init__(self, xgrid):
+    def __init__(self, xgrid, device = 'cpu'):
         self.xgrid = xgrid
+        self.device = device
 
     def __call__(self, h0:Yaml, x0:Yaml, w0:Yaml):
         """Gaussian source with free height, width and position."""
@@ -41,9 +43,10 @@ class Source:
 
 @register
 class SpecModel:
-    def __init__(self, xgrid:Yaml):
+    def __init__(self, xgrid:Yaml, device = 'cpu'):
         self.xgrid = xgrid
         self.sources = instantiate(regex="source.*", xgrid = xgrid)  # Assumed to be compatible with 'Source' class
+        self.device = device
 
     def __call__(self, a:Yaml, b:Yaml):
         spec = sum([source() for _, source in self.sources.items()])
