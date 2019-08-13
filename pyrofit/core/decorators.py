@@ -131,8 +131,7 @@ def _reg_cls(cls):
             try:
                 scoped_init = scope(cls.__init__, prefix = self._pyrofit_instance_name)(self, **kwargs)
             except TypeError as e:
-                print("...while instantiating", name)
-                raise KeyError(str(e))
+                raise TypeError(str(e) + f" [{name}]")
             return scoped_init
 
         def __call__(self, **kwargs):
