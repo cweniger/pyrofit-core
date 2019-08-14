@@ -140,7 +140,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
         num_chains=n_chains).run()
 
 
-def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-2, n_write=100, device = 'cpu'):
+def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300, device = 'cpu'):
     """Runs MAP parameter inference.
 
     Regularly saves the parameter and loss values. Also saves the pyro
@@ -321,16 +321,18 @@ def cli(ctx, device, yamlfile):
 @click.option("--guidetype", default = "Delta", help = "Guide type.")
 @click.option("--guidefile", default = None, help = "Guide filename.")
 @click.option("--lr", default = 1e-2, help = "Learning rate.")
+@click.option("--n_write", default = 200, help = "Steps after which guide is written.")
 #@click.option("--quantfile", default = None)
 @click.pass_context
-def fit(ctx, n_steps, guidetype, guidefile, lr):
+def fit(ctx, n_steps, guidetype, guidefile, lr, n_write):
     """Parameter inference with variational methods."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    infer_VI(cond_model, guidetype, guidefile, n_steps, device = device, lr = lr)
+    infer_VI(cond_model, guidetype, guidefile, n_steps, device = device, lr =
+            lr, n_write = n_write)
 
 @cli.command()
 @click.option("--n_steps", default = 300)

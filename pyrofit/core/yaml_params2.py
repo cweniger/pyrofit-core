@@ -33,6 +33,8 @@ def get_init_values():
 def _parse_val(key, val, device='cpu', dtype = torch.float32):
     """Parse input value.  Note special treatment for augmented strings.
     """
+    if val is None:
+        return None
     try:
         if isinstance(val, str):
             if val[:6] == "$EVAL ":
