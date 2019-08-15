@@ -20,24 +20,51 @@ class DeltaGuide(EasyGuide):
             N = 1000
             return sum([site['fn']() for i in range(N)])/N
 
-    def _get_group(self, match = '.*'):
-        """Return group and unconstrained initial values."""
-        group = self.group(match = match)
-        z = []
-        for site in group.prototype_sites:
-            constrained_z = self.init(site)
-            transform = biject_to(site['fn'].support)
-            z.append(transform.inv(constrained_z).reshape(-1))
-        z_init = torch.cat(z, 0)
-        return group, z_init
-
     def guide(self):
+        # Initialize guide if necessary
         if self.mygroup is None:
-            self.mygroup, self.z_init = self._get_group()
-        auto_z = pyro.param("guide_z_map", self.z_init)
-        guide_z, model_zs = self.mygroup.sample('guide_z',
-                dist.Delta(auto_z).to_event(1))
-        return model_zs #, guide_z
+            # Dummy group formation to collect all site names
+            self.mygroup = self.group()
+            # This initializes the values of the MAP estimator
+            for site in self.mygroup.prototype_sites:
+                site['value'] = self.init(site)
+
+        model_zs = {}
+        for site in self.mygroup.prototype_sites:
+            model_zs[site['name']] = self.map_estimate(site['name'])
+        return model_zs
+
+#class DeltaGuide(EasyGuide):
+#    def __init__(self, model):
+#        super(DeltaGuide, self).__init__(model)
+#        self.mygroup = None
+#
+#    def init(self, site):
+#        """Return constrained mean or explicit init value."""
+#        if 'init' in site['infer']:
+#            return site['infer']['init']
+#        else:
+#            N = 1000
+#            return sum([site['fn']() for i in range(N)])/N
+#
+#    def _get_group(self, match = '.*'):
+#        """Return group and unconstrained initial values."""
+#        group = self.group(match = match)
+#        z = []
+#        for site in group.prototype_sites:
+#            constrained_z = self.init(site)
+#            transform = biject_to(site['fn'].support)
+#            z.append(transform.inv(constrained_z).reshape(-1))
+#        z_init = torch.cat(z, 0)
+#        return group, z_init
+#
+#    def guide(self):
+#        if self.mygroup is None:
+#            self.mygroup, self.z_init = self._get_group()
+#        auto_z = pyro.param("guide_z_map", self.z_init)
+#        guide_z, model_zs = self.mygroup.sample('guide_z',
+#                dist.Delta(auto_z).to_event(1))
+#        return model_zs #, guide_z
 
 
 #######
