@@ -26,6 +26,7 @@ from tqdm import tqdm
 
 from . import yaml_params2
 from . import decorators
+from .guides import DeltaGuide
 
 
 ######################
@@ -56,6 +57,8 @@ def init_guide(cond_model, guidetype, guidefile = None):
         load_param_store(guidefile)
     if guidetype == 'Delta':
         guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
+    elif guidetype == 'DeltaGuide':
+        guide = DeltaGuide(cond_model)
     elif guidetype == 'DiagonalNormal':
         guide = AutoDiagonalNormal(cond_model, init_loc_fn = init_to_sample, init_scale = 0.01)
     elif guidetype == 'MultivariateNormal':
@@ -178,7 +181,12 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300, 
     print("##################")
     print("# Initial values #")
     print("##################")
+    print("Parameter store:")
     for name, value in pyro.get_param_store().items():
+        print(name + ": " + str(value))
+    print()
+    print("Guide:")
+    for name, value in guide().items():
         print(name + ": " + str(value))
     print()
 
@@ -197,7 +205,12 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300, 
     print("################")
     print("# Final values #")
     print("################")
+    print("Parameter store:")
     for name, value in pyro.get_param_store().items():
+        print(name + ": " + str(value))
+    print()
+    print("Guide:")
+    for name, value in guide().items():
         print(name + ": " + str(value))
     print()
 

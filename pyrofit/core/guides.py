@@ -36,8 +36,8 @@ class DeltaGuide(EasyGuide):
             self.mygroup, self.z_init = self._get_group()
         auto_z = pyro.param("guide_z_map", self.z_init)
         guide_z, model_zs = self.mygroup.sample('guide_z',
-                dist.Delta(auto_z).expand((1,)).to_event(1))
-        return model_zs, guide_z
+                dist.Delta(auto_z).to_event(1))
+        return model_zs #, guide_z
 
 
 #######
