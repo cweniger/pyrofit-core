@@ -70,9 +70,9 @@ def _entry2action(key, val, device):
         return lambda param: val
     keys = list(val.keys())
     keys.sort()
-    if keys == ['init']:
-        val = _parse_val(key, val['init'], device=device)
-        return lambda param: val
+#    if keys == ['init']:
+#        val = _parse_val(key, val['init'], device=device)
+#        return lambda param: val
     if keys == ['sample']:
         fn = eval(val['sample'][0])
         args = [_parse_val(key, x, device=device) for x in val['sample'][1:]]
