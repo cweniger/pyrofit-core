@@ -1,0 +1,9 @@
+pyrofit:
+  module: examples.minimal
+  model: multivariate
+conditioning:
+multivariate:
+  x:
+    sample: [dist.Normal, 0., 10.]
+  y:
+    sample: [dist.Normal, 0., 10.]

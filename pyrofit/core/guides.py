@@ -63,13 +63,12 @@ class MultivariateNormalGuide(PyrofitGuide):
     def guide(self):
         if self.mygroup is None:
             self.mygroup, self.z_init_loc = self._get_group()
-            self.z_init_scale = (self.z_init_loc**2)**0.5*0.01 + 0.01
         z_loc = pyro.param("guide_z_loc", self.z_init_loc)
-        z_scale_tril = pyro.param("guide_z_scale_tril", eye_like(z_loc, len(z_loc)),
+        z_scale_tril = pyro.param("guide_z_scale_tril", 0.01*eye_like(z_loc, len(z_loc)),
                                 constraint=constraints.lower_cholesky)
         # TODO: More flexible initial error
         guide_z, model_zs = self.mygroup.sample('guide_z',
-                dist.MultivariateNormal(z_loc, scale_tril = z_scale_tril*0.01))
+                dist.MultivariateNormal(z_loc, scale_tril = z_scale_tril))
         return model_zs
 
 

@@ -52,3 +52,14 @@ class SpecModel:
         spec = sum([source() for _, source in self.sources.items()])
         spec += self.xgrid*b+a
         pyro.sample("spec", dist.Normal(spec, 1.0))
+
+
+###########################
+# Simple multivariate model
+###########################
+
+@register
+def multivariate(x:Yaml, y:Yaml):
+    pyro.sample("x_obs", dist.Normal(x, 2.), obs = 0.)
+    pyro.sample("y_obs", dist.Normal(y, 2.), obs = 0.)
+    pyro.sample("xy_obs", dist.Normal(x-y, 1.), obs = 0.)

@@ -147,7 +147,8 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
         num_chains=n_chains).run()
 
 
-def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300, device = 'cpu'):
+def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300,
+        device = 'cpu', n_particles = 1):
     """Runs MAP parameter inference.
 
     Regularly saves the parameter and loss values. Also saves the pyro
@@ -176,9 +177,9 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300, 
 
     # For some reason, JitTrace_ELBO breaks for CPU
     if device == 'cpu':
-        loss = Trace_ELBO()
+        loss = Trace_ELBO(num_particles = n_particles)
     else:
-        loss = Trace_ELBO()
+        loss = Trace_ELBO(num_particles = n_particles)
     svi = SVI(cond_model, guide, optimizer, loss=loss)
 
     print()
@@ -351,13 +352,14 @@ def cli(ctx, device, yamlfile):
 
 @cli.command()
 @click.option("--n_steps", default = 1000)
-@click.option("--guidetype", default = "Delta", help = "Guide type.")
-@click.option("--guidefile", default = None, help = "Guide filename.")
-@click.option("--lr", default = 1e-2, help = "Learning rate.")
-@click.option("--n_write", default = 200, help = "Steps after which guide is written.")
+@click.option("--guidetype", default = "Delta", help = "Guide type (default Delta).")
+@click.option("--guidefile", default = None, help = "Guide filename (default YAML_guide.pt.")
+@click.option("--lr", default = 1e-2, help = "Learning rate (default 1e-2).")
+@click.option("--n_write", default = 200, help = "Steps after which guide is written (default 200).")
+@click.option("--n_particles", default = 1, help = "Particles used in optimization step (default 1).")
 #@click.option("--quantfile", default = None)
 @click.pass_context
-def fit(ctx, n_steps, guidetype, guidefile, lr, n_write):
+def fit(ctx, n_steps, guidetype, guidefile, lr, n_write, n_particles):
     """Parameter inference with variational methods."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
@@ -365,7 +367,7 @@ def fit(ctx, n_steps, guidetype, guidefile, lr, n_write):
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
     infer_VI(cond_model, guidetype, guidefile, n_steps, device = device, lr =
-            lr, n_write = n_write)
+            lr, n_write = n_write, n_particles = n_particles)
 
 @cli.command()
 @click.option("--n_steps", default = 300)
