@@ -26,7 +26,7 @@ from tqdm import tqdm
 
 from . import yaml_params2
 from . import decorators
-from .guides import DeltaGuide
+from .guides import DeltaGuide, DiagonalNormalGuide, MultivariateNormalGuide
 
 
 ######################
@@ -59,6 +59,10 @@ def init_guide(cond_model, guidetype, guidefile = None):
         guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
     elif guidetype == 'DeltaGuide':
         guide = DeltaGuide(cond_model)
+    elif guidetype == 'DiagonalNormalGuide':
+        guide = DiagonalNormalGuide(cond_model)
+    elif guidetype == 'MultivariateNormalGuide':
+        guide = MultivariateNormalGuide(cond_model)
     elif guidetype == 'DiagonalNormal':
         guide = AutoDiagonalNormal(cond_model, init_loc_fn = init_to_sample, init_scale = 0.01)
     elif guidetype == 'MultivariateNormal':
@@ -247,16 +251,15 @@ def infer(args, config, cond_model):
 
     return loss
 
-def save_posterior_predictive(model, guide, filename):
-    data = guide()
+def save_posterior_predictive(model, guide, filename, N = 300):
     pyro.clear_param_store()  # Don't save guide parameters in mock data
-    trace = poutine.trace(poutine.condition(model, data = data)).get_trace()
+    traces = [poutine.trace(poutine.condition(model, data = guide())).get_trace()
+            for i in range(N)]
 
     mock = {}
-    for tag in trace:
-        entry = trace.nodes[tag]
-        if entry['type'] == 'sample':
-            mock[tag] = entry['value'].detach().cpu().numpy()
+    for tag in traces[0]:
+        if traces[0].nodes[tag]['type'] == 'sample':
+            mock[tag] = [trace.nodes[tag]['value'].detach().cpu().numpy() for trace in traces]
     np.savez(filename, **mock)
 
 def save_mock(model, filename, use_init_values = True):
@@ -394,9 +397,10 @@ def mock(ctx, mockfile):
 @cli.command()
 @click.option("--guidetype", default = "Delta")
 @click.option("--guidefile", default = None)
+@click.option("--n_samples", default = 1)
 @click.argument("ppdfile")
 @click.pass_context
-def ppd(ctx, guidetype, guidefile, ppdfile):
+def ppd(ctx, guidetype, guidefile, ppdfile, n_samples):
     """Sample from posterior predictive distribution."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
@@ -404,7 +408,7 @@ def ppd(ctx, guidetype, guidefile, ppdfile):
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
     guide = init_guide(cond_model, guidetype, guidefile = guidefile)
-    save_posterior_predictive(model, guide, ppdfile)
+    save_posterior_predictive(model, guide, ppdfile, N = n_samples)
 
 @cli.command()
 @click.option("--guidetype", default = "Delta", help = "Guide type.")
