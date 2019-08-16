@@ -253,9 +253,9 @@ def infer(args, config, cond_model):
     return loss
 
 def save_posterior_predictive(model, guide, filename, N = 300):
-    pyro.clear_param_store()  # Don't save guide parameters in mock data
     traces = [poutine.trace(poutine.condition(model, data = guide())).get_trace()
             for i in range(N)]
+    pyro.clear_param_store()  # Don't save guide parameters in mock data
 
     mock = {}
     for tag in traces[0]:
