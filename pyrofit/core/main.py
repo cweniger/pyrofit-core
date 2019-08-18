@@ -176,10 +176,7 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300,
     optimizer = Adam({"lr": lr, "amsgrad": True})
 
     # For some reason, JitTrace_ELBO breaks for CPU
-    if device == 'cpu':
-        loss = Trace_ELBO(num_particles = n_particles)
-    else:
-        loss = Trace_ELBO(num_particles = n_particles)
+    loss = Trace_ELBO(num_particles = n_particles)
     svi = SVI(cond_model, guide, optimizer, loss=loss)
 
     print()
@@ -393,8 +390,8 @@ def mock(ctx, mockfile):
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
-    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    save_mock(cond_model, filename = mockfile)
+    #cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
+    save_mock(model, filename = mockfile)
 
 @cli.command()
 @click.option("--guidetype", default = "Delta")
