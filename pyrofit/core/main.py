@@ -259,6 +259,32 @@ def save_posterior_predictive(model, guide, filename, N = 300):
         if traces[0].nodes[tag]['type'] == 'sample':
             mock[tag] = [trace.nodes[tag]['value'].detach().cpu().numpy() for trace in traces]
     np.savez(filename, **mock)
+    print("Saved %i sample(s) from posterior predictive distribution to %s"%(N,filename))
+
+def save_score(cond_model, guide, filename):
+    # Calculate loss and gradients (implicitely done when evaluating loss_and_grads)
+    with poutine.trace(param_only=True) as param_capture:
+        loss = Trace_ELBO().loss_and_grads(cond_model, guide)
+
+    print()
+    print("Loss =", loss)
+
+    # Zero grad (seems to be not necessary)
+    #params = set(site["value"].unconstrained()
+    #             for site in param_capture.trace.nodes.values())
+    #pyro.infer.util.zero_grads(params_dict)
+
+    print()
+    print("Gradients:")
+    params_dict = {site['name']: site["value"].unconstrained().grad.detach().numpy()
+                 for site in param_capture.trace.nodes.values()}
+    for name, param in params_dict.items():
+        print(name + " :", param)
+
+    np.savez(filename, **params_dict)
+    print("Saved gradients to %s"%(filename))
+
+
 
 def save_mock(model, filename, use_init_values = True):
     yaml_params2.set_fix_all(use_init_values)
@@ -349,30 +375,30 @@ def cli(ctx, device, yamlfile):
 
 @cli.command()
 @click.option("--n_steps", default = 1000)
-@click.option("--guidetype", default = "Delta", help = "Guide type (default Delta).")
+@click.option("--guide", default = "Delta", help = "Guide type (default Delta).")
 @click.option("--guidefile", default = None, help = "Guide filename (default YAML_guide.pt.")
 @click.option("--lr", default = 1e-2, help = "Learning rate (default 1e-2).")
 @click.option("--n_write", default = 200, help = "Steps after which guide is written (default 200).")
 @click.option("--n_particles", default = 1, help = "Particles used in optimization step (default 1).")
 #@click.option("--quantfile", default = None)
 @click.pass_context
-def fit(ctx, n_steps, guidetype, guidefile, lr, n_write, n_particles):
+def fit(ctx, n_steps, guide, guidefile, lr, n_write, n_particles):
     """Parameter inference with variational methods."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    infer_VI(cond_model, guidetype, guidefile, n_steps, device = device, lr =
+    infer_VI(cond_model, guide, guidefile, n_steps, device = device, lr =
             lr, n_write = n_write, n_particles = n_particles)
 
 @cli.command()
 @click.option("--n_steps", default = 300)
 @click.option("--warmup_steps", default = 100)
-@click.option("--guidetype", default = None)
+@click.option("--guide", default = None)
 @click.option("--guidefile", default = None)
 @click.pass_context
-def sample(ctx, warmup_steps, n_steps, guidetype, guidefile):
+def sample(ctx, warmup_steps, n_steps, guide, guidefile):
     """Sample posterior with Hamiltonian Monte Carlo."""
     model = ctx.obj['model']
     device = ctx.obj['device']
@@ -380,7 +406,7 @@ def sample(ctx, warmup_steps, n_steps, guidetype, guidefile):
     cond_model = get_conditioned_model(yaml_config["conditioning"], model,
             device = device)
     infer_NUTS(cond_model, n_steps, warmup_steps, device = device, guidefile =
-            guidefile, guidetype = guidetype)
+            guidefile, guidetype = guide)
 
 @cli.command()
 @click.argument("mockfile")
@@ -394,31 +420,45 @@ def mock(ctx, mockfile):
     save_mock(model, filename = mockfile)
 
 @cli.command()
-@click.option("--guidetype", default = "Delta")
+@click.option("--guide", default = "Delta")
 @click.option("--guidefile", default = None)
 @click.option("--n_samples", default = 1)
 @click.argument("ppdfile")
 @click.pass_context
-def ppd(ctx, guidetype, guidefile, ppdfile, n_samples):
+def ppd(ctx, guide, guidefile, ppdfile, n_samples):
     """Sample from posterior predictive distribution."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    guide = init_guide(cond_model, guidetype, guidefile = guidefile)
-    save_posterior_predictive(model, guide, ppdfile, N = n_samples)
+    my_guide = init_guide(cond_model, guide, guidefile = guidefile)
+    save_posterior_predictive(model, my_guide, ppdfile, N = n_samples)
 
 @cli.command()
-@click.option("--guidetype", default = "Delta", help = "Guide type.")
+@click.option("--guide", default = "Delta")
+@click.option("--guidefile", default = None)
+@click.argument("gradfile")
+@click.pass_context
+def grad(ctx, guide, guidefile, gradfile):
+    """Calculate gradient of ELBO."""
+    if guidefile is None: guidefile = ctx.obj['default_guidefile']
+    model = ctx.obj['model']
+    device = ctx.obj['device']
+    yaml_config = ctx.obj['yaml_config']
+    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
+    my_guide = init_guide(cond_model, guide, guidefile = guidefile)
+    save_score(cond_model, my_guide, gradfile)
+
+@cli.command()
+@click.option("--guide", default = "Delta", help = "Guide type.")
 @click.option("--guidefile", default = None, help = "Guide filename.")
 @click.pass_context
-def info(ctx, guidetype, guidefile):
+def info(ctx, guide, guidefile):
     """Parameter inference with variational methods."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    info(cond_model, guidetype, guidefile, device = device)
-
+    info(cond_model, guide, guidefile, device = device)
