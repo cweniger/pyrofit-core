@@ -257,6 +257,7 @@ def infer(args, config, cond_model):
 
     return loss
 
+
 def save_posterior_predictive(model, guide, filename, N = 300):
     traces = [poutine.trace(poutine.condition(model, data = guide())).get_trace()
             for i in range(N)]
@@ -269,7 +270,8 @@ def save_posterior_predictive(model, guide, filename, N = 300):
     np.savez(filename, **mock)
     print("Saved %i sample(s) from posterior predictive distribution to %s"%(N,filename))
 
-def save_score(cond_model, guide, filename):
+
+def save_lossgrad(cond_model, guide, filename):
     # Calculate loss and gradients (implicitely done when evaluating loss_and_grads)
     with poutine.trace(param_only=True) as param_capture:
         loss = Trace_ELBO().loss_and_grads(cond_model, guide)
@@ -284,14 +286,16 @@ def save_score(cond_model, guide, filename):
 
     print()
     print("Gradients:")
-    params_dict = {site['name']: site["value"].unconstrained().grad.detach().numpy()
+    param_dict = {site['name']: site["value"].unconstrained().grad.detach().numpy()
                  for site in param_capture.trace.nodes.values()}
-    for name, param in params_dict.items():
+    for name, param in param_dict.items():
         print(name + " :", param)
 
-    np.savez(filename, **params_dict)
-    print("Saved gradients to %s"%(filename))
+    param_dict["loss"] = loss
 
+    np.savez(filename, **param_dict)
+    print()
+    print("Save loss and grads to %s"%(filename))
 
 
 def save_mock(model, filename, use_init_values = True):
@@ -449,17 +453,17 @@ def ppd(ctx, guide, guidefile, ppdfile, n_samples):
 @cli.command()
 @click.option("--guide", default = "Delta")
 @click.option("--guidefile", default = None)
-@click.argument("gradfile")
+@click.argument("outfile")
 @click.pass_context
-def grad(ctx, guide, guidefile, gradfile):
-    """Calculate gradient of ELBO."""
+def lossgrad(ctx, guide, guidefile, outfile):
+    """Store model loss and gradient of guide parameters."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
     my_guide = init_guide(cond_model, guide, guidefile = guidefile)
-    save_score(cond_model, my_guide, gradfile)
+    save_lossgrad(cond_model, my_guide, outfile)
 
 @cli.command()
 @click.option("--guide", default = "Delta", help = "Guide type.")
