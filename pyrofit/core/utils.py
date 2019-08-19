@@ -11,7 +11,7 @@ from torch.distributions.transforms import ExpTransform
 import pyro
 from pyro import distributions as dist
 
-def onehot3d(x, shape = torch.Size()):
+def onehot3d(x, weights = None, shape = torch.Size()):
     r"""Returns hot 3-dim tensor.
     
     Points outside of the output boundaries will be clamped to the boundaries.
@@ -21,8 +21,9 @@ def onehot3d(x, shape = torch.Size()):
                     x in [0, W-1]
                     y in [0, H-1]
                     z in [0, D-1]
-                    otherwise parameters are clipped
+                    otherwise parameters are clipped at boundaries
         shape (torch.Size): shape in (D, H, W).
+        weights (Tensor): Optional weights (default None)
         
     Returns:
         M (Tensor): Output tensor with shape `shape`.
@@ -31,20 +32,22 @@ def onehot3d(x, shape = torch.Size()):
     if shape[0] == 1:
         return onehot2d(x[:,1:], torch.Size([shape[1], shape[2]])).unsqueeze(0)
     device = 'cpu' if not x.is_cuda else x.get_device()
+    if weights is None:
+        weights = torch.ones(x.shape[0], device = device)
     N = torch.tensor(shape).to(device)
     M = torch.zeros(shape, device = device)
     x = torch.where(x<torch.zeros(1, device = device), torch.zeros(1, device = device), torch.where(x >= N.float()-1, N.float()-1.001, x))
     i = x.long()  # Obtain index tensor
     w = x-i.float()  # Obtain linear weights
     ifl = i[:,0]*N[2]*N[1]+i[:,1]*N[2]+i[:,2]
-    M.put_(ifl                 , (1-w[:,0])*(1-w[:,1])*(1-w[:,2]), accumulate = True)
-    M.put_(ifl+N[2]*N[1]       , (  w[:,0])*(1-w[:,1])*(1-w[:,2]), accumulate = True)
-    M.put_(ifl+N[1]            , (1-w[:,0])*(  w[:,1])*(1-w[:,2]), accumulate = True)
-    M.put_(ifl+N[2]*N[1]+N[1]  , (  w[:,0])*(  w[:,1])*(1-w[:,2]), accumulate = True)
-    M.put_(ifl               +1, (1-w[:,0])*(1-w[:,1])*(  w[:,2]), accumulate = True)
-    M.put_(ifl+N[2]*N[1]     +1, (  w[:,0])*(1-w[:,1])*(  w[:,2]), accumulate = True)
-    M.put_(ifl+N[1]          +1, (1-w[:,0])*(  w[:,1])*(  w[:,2]), accumulate = True)
-    M.put_(ifl+N[2]*N[1]+N[1]+1, (  w[:,0])*(  w[:,1])*(  w[:,2]), accumulate = True)
+    M.put_(ifl                 , weights*(1-w[:,0])*(1-w[:,1])*(1-w[:,2]), accumulate = True)
+    M.put_(ifl+N[2]*N[1]       , weights*(  w[:,0])*(1-w[:,1])*(1-w[:,2]), accumulate = True)
+    M.put_(ifl+N[1]            , weights*(1-w[:,0])*(  w[:,1])*(1-w[:,2]), accumulate = True)
+    M.put_(ifl+N[2]*N[1]+N[1]  , weights*(  w[:,0])*(  w[:,1])*(1-w[:,2]), accumulate = True)
+    M.put_(ifl               +1, weights*(1-w[:,0])*(1-w[:,1])*(  w[:,2]), accumulate = True)
+    M.put_(ifl+N[2]*N[1]     +1, weights*(  w[:,0])*(1-w[:,1])*(  w[:,2]), accumulate = True)
+    M.put_(ifl+N[1]          +1, weights*(1-w[:,0])*(  w[:,1])*(  w[:,2]), accumulate = True)
+    M.put_(ifl+N[2]*N[1]+N[1]+1, weights*(  w[:,0])*(  w[:,1])*(  w[:,2]), accumulate = True)
     return M
 
 def onehot2d(x, shape = torch.Size()):
@@ -121,10 +124,10 @@ class OnehotConv2d:
             #print("FFT convolution shape:", self.hotshape_padded)
             self._my_call = self._eval_conv2dfft
 
-    def __call__(self, v):
+    def __call__(self, v, weights = None):
         r"""
         Arguments:
-            x (Tensor): Hotlist of shape (Npoints, 3), defining (x, y, z) coordinates.
+            x (Tensor): Hotlist of shape (Npoints, 3), defining (x, y, z, w) coordinates.
         Returns:
             M (Tensor): convolved 2-dim output tensor of shape (H, W).
 
@@ -135,7 +138,7 @@ class OnehotConv2d:
         if not self.odd:
             x[:,1] += 0.5
             x[:,2] += 0.5
-        M = onehot3d(x, shape = self.hotshape)
+        M = onehot3d(x, weights = weights, shape = self.hotshape)
         M_padded = func.pad(M, (self.padding-self.o, self.padding,
                                 self.padding-self.o, self.padding))
         #print(M_padded.shape)

@@ -148,7 +148,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
 
 
 def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300,
-        device = 'cpu', n_particles = 1):
+        device = 'cpu', n_particles = 1, conv_th = 0.):
     """Runs MAP parameter inference.
 
     Regularly saves the parameter and loss values. Also saves the pyro
@@ -195,13 +195,21 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300,
     print("################################")
     print("# Maximizing ELBO. Hang tight. #")
     print("################################")
+    losses = []
     with tqdm(total = n_steps) as t:
         for i in range(n_steps):
             if i % n_write == 0:
                 pyro.get_param_store().save(guidefile)
             loss = svi.step()
+            losses.append(loss)
             t.postfix = "loss=%.3f"%loss
             t.update()
+
+            if len(losses) > 100:
+                dl = (np.mean(losses[-100:-80]) - np.mean(losses[-20:]))/80
+                if dl < conv_th:
+                    print("Convergence criterion reached: d_loss/d_step < %.3e"%conv_th)
+                    break
 
     print()
     print("################")
@@ -375,14 +383,15 @@ def cli(ctx, device, yamlfile):
 
 @cli.command()
 @click.option("--n_steps", default = 1000)
-@click.option("--guide", default = "Delta", help = "Guide type (default Delta).")
+@click.option("--guide", default = "DeltaGuide", help = "Guide type (default DeltaGuide).")
 @click.option("--guidefile", default = None, help = "Guide filename (default YAML_guide.pt.")
-@click.option("--lr", default = 1e-2, help = "Learning rate (default 1e-2).")
+@click.option("--lr", default = 1e-3, help = "Learning rate (default 1e-3).")
 @click.option("--n_write", default = 200, help = "Steps after which guide is written (default 200).")
 @click.option("--n_particles", default = 1, help = "Particles used in optimization step (default 1).")
+@click.option("--conv_th", default = 1e-3, help = "Convergence threshold (default 1e-3).")
 #@click.option("--quantfile", default = None)
 @click.pass_context
-def fit(ctx, n_steps, guide, guidefile, lr, n_write, n_particles):
+def fit(ctx, n_steps, guide, guidefile, lr, n_write, n_particles, conv_th):
     """Parameter inference with variational methods."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
@@ -390,7 +399,8 @@ def fit(ctx, n_steps, guide, guidefile, lr, n_write, n_particles):
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
     infer_VI(cond_model, guide, guidefile, n_steps, device = device, lr =
-            lr, n_write = n_write, n_particles = n_particles)
+            lr, n_write = n_write, n_particles = n_particles, conv_th =
+            conv_th)
 
 @cli.command()
 @click.option("--n_steps", default = 300)
@@ -418,6 +428,7 @@ def mock(ctx, mockfile):
     yaml_config = ctx.obj['yaml_config']
     #cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
     save_mock(model, filename = mockfile)
+    print("Save mock data to %s"%mockfile)
 
 @cli.command()
 @click.option("--guide", default = "Delta")

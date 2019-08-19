@@ -29,6 +29,7 @@ class PyrofitGuide(EasyGuide):
         for site in group.prototype_sites:
             constrained_z = self.init(site)
             transform = biject_to(site['fn'].support)
+            print(site['infer'])
             z.append(transform.inv(constrained_z).reshape(-1))
         z_init = torch.cat(z, 0)
         return group, z_init
@@ -60,6 +61,18 @@ class DiagonalNormalGuide(PyrofitGuide):
         return model_zs
 
 class MultivariateNormalGuide(PyrofitGuide):
+    def guide(self):
+        if self.mygroup is None:
+            self.mygroup, self.z_init_loc = self._get_group()
+        z_loc = pyro.param("guide_z_loc", self.z_init_loc)
+        z_scale_tril = pyro.param("guide_z_scale_tril", 0.01*eye_like(z_loc, len(z_loc)),
+                                constraint=constraints.lower_cholesky)
+        # TODO: More flexible initial error
+        guide_z, model_zs = self.mygroup.sample('guide_z',
+                dist.MultivariateNormal(z_loc, scale_tril = z_scale_tril))
+        return model_zs
+
+class SuperGuide(PyrofitGuide):
     def guide(self):
         if self.mygroup is None:
             self.mygroup, self.z_init_loc = self._get_group()
