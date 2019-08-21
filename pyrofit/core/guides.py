@@ -16,11 +16,16 @@ class PyrofitGuide(EasyGuide):
 
     def init(self, site):
         """Return constrained mean or explicit init value."""
-        if 'init' in site['infer']:
-            return site['infer']['init']
-        else:
+        init = site['infer'].get('init', 'sample')
+        if not isinstance(init, str):
+            return init
+        if init  == 'sample':
+            return site['fn']()
+        elif init == 'mean':
             N = 1000
             return sum([site['fn']() for i in range(N)])/N
+        else:
+            raise KeyError
 
     def _get_group(self, match = '.*'):
         """Return group and unconstrained initial values."""
