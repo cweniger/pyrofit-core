@@ -45,7 +45,7 @@ CLASSES = {}#defaultdict(lambda: None)
 def load_yaml(yamlfile, device = 'cpu'):
     global YAML_CONFIG
     with open(yamlfile, "r") as stream:
-        YAML_CONFIG = yaml.load(stream)
+        YAML_CONFIG = yaml.load(stream, Loader=yaml.FullLoader)
     for key, entry in YAML_CONFIG.items():
         # Ignore reserved keyword entries
         if key in RESERVED or entry is None:
