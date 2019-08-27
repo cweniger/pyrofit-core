@@ -55,22 +55,22 @@ def load_param_store(paramfile):
 def init_guide(cond_model, guidetype, guidefile = None):
     if guidefile is not None:
         load_param_store(guidefile)
+#    if guidetype == 'Delta':
+#        guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
     if guidetype == 'Delta':
-        guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
-    elif guidetype == 'DeltaGuide':
         guide = DeltaGuide(cond_model)
-    elif guidetype == 'DiagonalNormalGuide':
-        guide = DiagonalNormalGuide(cond_model)
-    elif guidetype == 'MultivariateNormalGuide':
-        guide = MultivariateNormalGuide(cond_model)
     elif guidetype == 'DiagonalNormal':
-        guide = AutoDiagonalNormal(cond_model, init_loc_fn = init_to_sample, init_scale = 0.01)
+        guide = DiagonalNormalGuide(cond_model)
     elif guidetype == 'MultivariateNormal':
-        guide = AutoMultivariateNormal(cond_model, init_loc_fn = init_to_sample)
-    elif guidetype == 'LowRankMultivariateNormal':
-        guide = AutoLowRankMultivariateNormal(cond_model, init_loc_fn = init_to_sample)
-    elif guidetype == 'LaplaceApproximation':
-        guide = AutoLaplaceApproximation(cond_model, init_loc_fn = init_to_sample)
+        guide = MultivariateNormalGuide(cond_model)
+#    elif guidetype == 'DiagonalNormal':
+#        guide = AutoDiagonalNormal(cond_model, init_loc_fn = init_to_sample, init_scale = 0.01)
+#    elif guidetype == 'MultivariateNormal':
+#        guide = AutoMultivariateNormal(cond_model, init_loc_fn = init_to_sample)
+#    elif guidetype == 'LowRankMultivariateNormal':
+#        guide = AutoLowRankMultivariateNormal(cond_model, init_loc_fn = init_to_sample)
+#    elif guidetype == 'LaplaceApproximation':
+#        guide = AutoLaplaceApproximation(cond_model, init_loc_fn = init_to_sample)
     else:
         raise KeyError("Guide type unknown")
     return guide
@@ -266,7 +266,10 @@ def save_posterior_predictive(model, guide, filename, N = 300):
     mock = {}
     for tag in traces[0]:
         if traces[0].nodes[tag]['type'] == 'sample':
-            mock[tag] = [trace.nodes[tag]['value'].detach().cpu().numpy() for trace in traces]
+            if N == 1:
+                mock[tag] = traces[0].nodes[tag]['value'].detach().cpu().numpy()
+            else:
+                mock[tag] = [trace.nodes[tag]['value'].detach().cpu().numpy() for trace in traces]
     np.savez(filename, **mock)
     print("Saved %i sample(s) from posterior predictive distribution to %s"%(N,filename))
 
@@ -382,13 +385,13 @@ def cli(ctx, device, yamlfile):
     ctx.obj['model'] = model
 
     # Standard filenames
-    ctx.obj['default_guidefile'] = yamlfile[:-5]+"_guide.pt"
+    ctx.obj['default_guidefile'] = yamlfile[:-5]+".guide.pt"
 
 
 @cli.command()
 @click.option("--n_steps", default = 1000)
-@click.option("--guide", default = "DeltaGuide", help = "Guide type (default DeltaGuide).")
-@click.option("--guidefile", default = None, help = "Guide filename (default YAML_guide.pt.")
+@click.option("--guide", default = "Delta", help = "Guide type (default Delta).")
+@click.option("--guidefile", default = None, help = "Guide filename (default YAML.guide.pt.")
 @click.option("--lr", default = 1e-3, help = "Learning rate (default 1e-3).")
 @click.option("--n_write", default = 200, help = "Steps after which guide is written (default 200).")
 @click.option("--n_particles", default = 1, help = "Particles used in optimization step (default 1).")
@@ -437,7 +440,7 @@ def mock(ctx, mockfile):
 @cli.command()
 @click.option("--guide", default = "Delta")
 @click.option("--guidefile", default = None)
-@click.option("--n_samples", default = 1)
+@click.option("--n_samples", default = 1, help = "Number of samples (default 1).")
 @click.argument("ppdfile")
 @click.pass_context
 def ppd(ctx, guide, guidefile, ppdfile, n_samples):
