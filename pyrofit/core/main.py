@@ -316,22 +316,23 @@ def save_mock(model, filename, use_init_values = True):
 
     np.savez(filename, **mock)
 
-def info(cond_model, guidetype, guidefile, device = 'cpu'):
-    # Initialize VI model and guide
-    guide = init_guide(cond_model, guidetype, guidefile = guidefile)
-
-    loss = Trace_ELBO()
-    svi = SVI(cond_model, guide, optimizer, loss=loss)
-    loss = svi.step()
-
-    print("LOSS =", loss)
-    print()
-
-    print("####################")
-    print("# Parameter values #")
-    print("####################")
-    for name, value in pyro.get_param_store().items():
-        print(name + ": " + str(value))
+# TODO: Rewrite Info Command
+#def info(cond_model, guidetype, guidefile, device = 'cpu'):
+#    # Initialize VI model and guide
+#    guide = init_guide(cond_model, guidetype, guidefile = guidefile)
+#
+#    loss = Trace_ELBO()
+#    svi = SVI(cond_model, guide, optimizer, loss=loss)
+#    loss = svi.step()
+#
+#    print("LOSS =", loss)
+#    print()
+#
+#    print("####################")
+#    print("# Parameter values #")
+#    print("####################")
+#    for name, value in pyro.get_param_store().items():
+#        print(name + ": " + str(value))
 
 
 ########################
@@ -468,15 +469,15 @@ def lossgrad(ctx, guide, guidefile, outfile):
     my_guide = init_guide(cond_model, guide, guidefile = guidefile)
     save_lossgrad(cond_model, my_guide, outfile)
 
-@cli.command()
-@click.option("--guide", default = "Delta", help = "Guide type.")
-@click.option("--guidefile", default = None, help = "Guide filename.")
-@click.pass_context
-def info(ctx, guide, guidefile):
-    """Parameter inference with variational methods."""
-    if guidefile is None: guidefile = ctx.obj['default_guidefile']
-    model = ctx.obj['model']
-    device = ctx.obj['device']
-    yaml_config = ctx.obj['yaml_config']
-    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    info(cond_model, guide, guidefile, device = device)
+#@cli.command()
+#@click.option("--guide", default = "Delta", help = "Guide type.")
+#@click.option("--guidefile", default = None, help = "Guide filename.")
+#@click.pass_context
+#def info(ctx, guide, guidefile):
+#    """Parameter inference with variational methods."""
+#    if guidefile is None: guidefile = ctx.obj['default_guidefile']
+#    model = ctx.obj['model']
+#    device = ctx.obj['device']
+#    yaml_config = ctx.obj['yaml_config']
+#    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
+#    info(cond_model, guide, guidefile, device = device)
