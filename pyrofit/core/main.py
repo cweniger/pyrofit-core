@@ -18,7 +18,7 @@ from pyro.contrib.autoguide import (AutoDelta, AutoLowRankMultivariateNormal,
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO, JitTrace_ELBO
 from pyro.infer.mcmc import MCMC, NUTS, util
-from pyro.optim import Adam
+from pyro.optim import Adam, SGD
 #from ruamel.yaml import YAML
 #yaml = YAML()
 import yaml
@@ -174,6 +174,7 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300,
     guide = init_guide(cond_model, guidetype, guidefile = guidefile)
 
     optimizer = Adam({"lr": lr, "amsgrad": True})
+    #optimizer = SGD({"lr": lr})
 
     # For some reason, JitTrace_ELBO breaks for CPU
     loss = Trace_ELBO(num_particles = n_particles)
