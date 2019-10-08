@@ -47,7 +47,7 @@ def load_param_store(paramfile):
     """
     pyro.clear_param_store()
     try:
-        pyro.get_param_store().load(paramfile)
+        pyro.get_param_store().load(paramfile, map_location = 'cpu')
         print("Loading guide:", paramfile)
     except FileNotFoundError:
         print("Could not open %s. Starting with fresh guide."%paramfile)
