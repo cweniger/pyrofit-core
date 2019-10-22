@@ -42,10 +42,25 @@ YAML_CONFIG = None
 SETTINGS = defaultdict(lambda: {})
 VARIABLES = defaultdict(lambda: {})
 CLASSES = {}#defaultdict(lambda: None)
-def load_yaml(yamlfile, device = 'cpu'):
+
+
+def load_yaml(yamlfile, device='cpu'):
+    """
+    Loads a yaml file for use as the pyrofit configuration.
+    """
     global YAML_CONFIG
+
     with open(yamlfile, "r") as stream:
         YAML_CONFIG = yaml.load(stream, Loader=yaml.FullLoader)
+
+    return refresh_config(device)
+
+
+def refresh_config(device="cpu"):
+    """
+    Replaces YAML_CONFIG with a new configuration and re-parses all settings
+    and variables.
+    """
     for key, entry in YAML_CONFIG.items():
         # Ignore reserved keyword entries
         if key in RESERVED or entry is None:
@@ -60,6 +75,7 @@ def load_yaml(yamlfile, device = 'cpu'):
             if 'settings' in entry.keys() and entry['settings'] is not None:
                 SETTINGS[name] = yaml2settings(entry['settings'], device = device)
             CLASSES[name] = cls
+
     return YAML_CONFIG
 
 
@@ -118,10 +134,13 @@ def _reg_cls(cls):
     name = cls.__qualname__
 
     # Inspect __init__ function signature
+    # TODO: what are these used for?
     sig_init = _parse_signature(cls.__init__)
     sig_call = _parse_signature(cls.__call__)
 
     class Wrapped(cls):
+        # TODO: do we need to restrict to kwargs? Why can't we use args as
+        # well?
         def __init__(self, name, **kwargs):
             self._pyrofit_instance_name = name
             if self._pyrofit_instance_name is None:
