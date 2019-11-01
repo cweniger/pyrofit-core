@@ -10,6 +10,13 @@ from torch.distributions.transforms import PowerTransform, ExpTransform
 import pyro.distributions as dist
 from torch.distributions import constraints
 
+try:
+    from torchinterp1d2 import Interp1d
+except ModuleNotFoundError:
+    print("WARNING: InverseTransformSampling not available!")
+    print("         please install https://github.com/aliutkus/torchinterp1d")
+
+
 class _TruncatedPower(TransformedDistribution):
     arg_constraints = {'low': constraints.positive, 'high': constraints.positive}
     has_rsample = True
@@ -28,7 +35,7 @@ class TruncatedPower(_TruncatedPower, dist.torch_distribution.TorchDistributionM
     pass
 
 class InverseTransformSampling(dist.TorchDistribution):
-    """Flexible pyor.ai 1-dim distribution, based on inverse transform sampling."""
+    """Flexible pyro 1-dim distribution, based on inverse transform sampling."""
     has_rsample = True
 
     def __init__(self, log_prob, grid, expand_shape = torch.Size([])):
@@ -46,7 +53,7 @@ class InverseTransformSampling(dist.TorchDistribution):
         grid = grid.expand((grid.shape[0],)+self._prob_shape)
 
         # TODO: tensor shapes correct?
-        self._support = constr.interval(grid[0], grid[-1])  # define finite support
+        self._support = constraints.interval(grid[0], grid[-1])  # define finite support
 
         cdf, grid, norm = self._get_cdf(log_prob, grid)
         self.D = np.prod(tuple(self._prob_shape), dtype = np.int32)  # Number of pdfs
@@ -98,10 +105,23 @@ class InverseTransformSampling(dist.TorchDistribution):
             expand_shape = batch_shape
         return type(self)(self._log_prob, self._grid, expand_shape = expand_shape)
 
-#def test():
-#    import pyro
-#    import pylab as plt
-#    x = pyro.sample("x", TruncatedPower(torch.ones(100000), 100., -0.2)).numpy()
-#    plt.hist(x, bins = 100)
-#    plt.show()
-#test()
+def test1():
+    import pyro
+    import pylab as plt
+    x = pyro.sample("x", TruncatedPower(torch.ones(100000), 100., -0.2)).numpy()
+    plt.hist(x, bins = 100)
+    plt.show()
+
+def test2():
+    import pyro
+    import pylab as plt
+    alpha = torch.tensor(0.0, requires_grad = True)
+    log_prob = lambda x: x**alpha
+    grid = torch.logspace(-1, 1, 100)
+    x = pyro.sample("x", InverseTransformSampling(log_prob, grid).expand_by((10000,)))
+    x.sum().backward()
+    print(alpha.grad)
+    plt.hist(x.detach().numpy())
+    plt.show()
+
+test2()
