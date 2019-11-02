@@ -40,6 +40,7 @@ class InverseTransformSampling(dist.TorchDistribution):
 
     def __init__(self, log_prob, grid, expand_shape = torch.Size([])):
         self._log_prob = log_prob
+        self.device = 'cpu' if not grid.is_cuda else grid.get_device()
         self._grid = grid
         self._event_shape = torch.Size([])  # all variables are independent (but may have different pdfs)
         self._prob_shape = log_prob(grid[0]).shape  # shape of log_prob (pdfs might differ)
@@ -87,7 +88,7 @@ class InverseTransformSampling(dist.TorchDistribution):
 
     def rsample(self, sample_shape = torch.Size()):
         P = np.prod(tuple(sample_shape), dtype = np.int16)
-        xnew = torch.rand(self.D, P*self.R_D)
+        xnew = torch.rand(self.D, P*self.R_D, device = self.device)
         out = self.interp1d(self.x, self.y, xnew)  # (D, P*R/D)
         return out.permute(1,0).reshape(self.shape(sample_shape))
 

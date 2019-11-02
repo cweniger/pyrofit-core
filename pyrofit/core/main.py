@@ -42,19 +42,19 @@ def get_conditioned_model(yaml_section, model, device='cpu'):
     cond_model = pyro.condition(model, conditions)
     return cond_model
 
-def load_param_store(paramfile):
+def load_param_store(paramfile, device = 'cpu'):
     """Loads the parameter store from the resume file.
     """
     pyro.clear_param_store()
     try:
-        pyro.get_param_store().load(paramfile, map_location = 'cpu')
+        pyro.get_param_store().load(paramfile, map_location = device)
         print("Loading guide:", paramfile)
     except FileNotFoundError:
         print("Could not open %s. Starting with fresh guide."%paramfile)
 
-def init_guide(cond_model, guidetype, guidefile = None):
+def init_guide(cond_model, guidetype, guidefile = None, device = 'cpu'):
     if guidefile is not None:
-        load_param_store(guidefile)
+        load_param_store(guidefile, device = device)
 #    if guidetype == 'Delta':
 #        guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
     if guidetype == 'Delta':
@@ -112,7 +112,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
     initial_params, potential_fn, transforms, prototype_trace = util.initialize_model(cond_model)
 
     if guidefile is not None:
-        guide = init_guide(cond_model, guidetype, guidefile = guidefile)
+        guide = init_guide(cond_model, guidetype, guidefile = guidefile, device = device)
         sample = guide()
         for key in initial_params.keys():
             initial_params[key] = transforms[key](sample[key].detach())
@@ -171,7 +171,7 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300,
     """
 
     # Initialize VI model and guide
-    guide = init_guide(cond_model, guidetype, guidefile = guidefile)
+    guide = init_guide(cond_model, guidetype, guidefile = guidefile, device = device)
 
     optimizer = Adam({"lr": lr, "amsgrad": True})
     #optimizer = SGD({"lr": lr})
@@ -452,7 +452,7 @@ def ppd(ctx, guide, guidefile, ppdfile, n_samples):
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    my_guide = init_guide(cond_model, guide, guidefile = guidefile)
+    my_guide = init_guide(cond_model, guide, guidefile = guidefile, device = device)
     save_posterior_predictive(model, my_guide, ppdfile, N = n_samples)
 
 @cli.command()
@@ -467,7 +467,7 @@ def lossgrad(ctx, guide, guidefile, outfile):
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    my_guide = init_guide(cond_model, guide, guidefile = guidefile)
+    my_guide = init_guide(cond_model, guide, guidefile = guidefile, device = device)
     save_lossgrad(cond_model, my_guide, outfile)
 
 #@cli.command()
