@@ -11,7 +11,7 @@ import pyro.distributions as dist
 from torch.distributions import constraints
 
 try:
-    from torchinterp1d2 import Interp1d
+    from torchinterp1d import Interp1d
 except ModuleNotFoundError:
     print("WARNING: InverseTransformSampling not available!")
     print("         please install https://github.com/aliutkus/torchinterp1d")
@@ -124,4 +124,5 @@ def test2():
     plt.hist(x.detach().numpy())
     plt.show()
 
-test2()
+if __name__ == "__main__":
+    test2()
