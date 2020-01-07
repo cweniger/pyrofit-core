@@ -7,7 +7,6 @@ import torch.nn.functional as func
 from torch.distributions.transformed_distribution import (
     TransformedDistribution)
 from torch.distributions.transforms import ExpTransform
-
 import pyro
 from pyro import distributions as dist
 
@@ -650,3 +649,7 @@ def get_components(yaml_entries, type_mapping, device='cpu'):
 
         instances.append(instance)
     return instances
+
+def observe(name, value):
+    device = 'cpu'
+    pyro.sample(name, dist.Delta(value, log_density = torch.tensor(0., device = device)), obs = value)
