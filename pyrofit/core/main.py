@@ -52,7 +52,8 @@ def load_param_store(paramfile, device = 'cpu'):
     except FileNotFoundError:
         print("Could not open %s. Starting with fresh guide."%paramfile)
 
-def init_guide(cond_model, guidetype, guidefile = None, device = 'cpu'):
+def init_guide(cond_model, guide_conf, guidefile = None, device = 'cpu'):
+    guidetype = guide_conf['type']
     if guidefile is not None:
         load_param_store(guidefile, device = device)
 #    if guidetype == 'Delta':
@@ -75,7 +76,7 @@ def init_guide(cond_model, guidetype, guidefile = None, device = 'cpu'):
         raise KeyError("Guide type unknown")
     return guide
 
-def save_guide(guidetype, guidefile):
+def save_guide(guidefile):
     print("Saving guide:", guidefile)
     pyro.get_param_store().save(guidefile)
 
@@ -97,7 +98,7 @@ def make_transformed_pe(potential_fn, transform, unpack_fn):
     return transformed_potential_fn
     
 
-def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', guidefile = None, guidetype = None):
+def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', guidefile = None, guide_conf = None):
     """Runs the NUTS HMC algorithm.
 
     Saves the samples and weights as well as a netcdf file for the run.
@@ -112,13 +113,13 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
     initial_params, potential_fn, transforms, prototype_trace = util.initialize_model(cond_model)
 
     if guidefile is not None:
-        guide = init_guide(cond_model, guidetype, guidefile = guidefile, device = device)
+        guide = init_guide(cond_model, guide_conf, guidefile = guidefile, device = device)
         sample = guide()
         for key in initial_params.keys():
             initial_params[key] = transforms[key](sample[key].detach())
 
     # FIXME: In the case of DiagonalNormal, results have to be mapped back onto unpacked latents
-    if guidetype == "DiagonalNormal":
+    if guide_conf['type'] == "DiagonalNormal":
         transform = guide.get_transform()
         unpack_fn = lambda u: guide.unpack_latent(u)
         potential_fn = make_transformed_pe(potential_fn, transform, unpack_fn)
@@ -147,7 +148,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
         num_chains=n_chains).run()
 
 
-def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300,
+def infer_VI(cond_model, guide_conf, guidefile, n_steps, lr = 1e-3, n_write=300,
         device = 'cpu', n_particles = 1, conv_th = 0.):
     """Runs MAP parameter inference.
 
@@ -171,7 +172,7 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300,
     """
 
     # Initialize VI model and guide
-    guide = init_guide(cond_model, guidetype, guidefile = guidefile, device = device)
+    guide = init_guide(cond_model, guide_conf, guidefile = guidefile, device = device)
 
     optimizer = Adam({"lr": lr, "amsgrad": True})
     #optimizer = SGD({"lr": lr})
@@ -225,7 +226,7 @@ def infer_VI(cond_model, guidetype, guidefile, n_steps, lr = 1e-3, n_write=300,
         print(name + ": " + str(value))
     print()
 
-    save_guide(guidetype, guidefile)
+    save_guide(guidefile)
 
 
 def infer(args, config, cond_model):
@@ -392,7 +393,7 @@ def cli(ctx, device, yamlfile):
 
 @cli.command()
 @click.option("--n_steps", default = 1000)
-@click.option("--guide", default = "Delta", help = "Guide type (default Delta).")
+#@click.option("--guide", default = "Delta", help = "Guide type (default Delta).")
 @click.option("--guidefile", default = None, help = "Guide filename (default YAML.guide.pt.")
 @click.option("--lr", default = 1e-3, help = "Learning rate (default 1e-3).")
 @click.option("--n_write", default = 200, help = "Steps after which guide is written (default 200).")
@@ -400,32 +401,34 @@ def cli(ctx, device, yamlfile):
 @click.option("--conv_th", default = 1e-3, help = "Convergence threshold (default 1e-3).")
 #@click.option("--quantfile", default = None)
 @click.pass_context
-def fit(ctx, n_steps, guide, guidefile, lr, n_write, n_particles, conv_th):
+def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th):
     """Parameter inference with variational methods."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    infer_VI(cond_model, guide, guidefile, n_steps, device = device, lr =
+    guide_conf = yaml_config['guide']
+    infer_VI(cond_model, guide_conf, guidefile, n_steps, device = device, lr =
             lr, n_write = n_write, n_particles = n_particles, conv_th =
             conv_th)
 
 @cli.command()
 @click.option("--n_steps", default = 300)
 @click.option("--warmup_steps", default = 100)
-@click.option("--guide", default = None)
+#@click.option("--guide", default = None)
 @click.option("--guidefile", default = None)
 @click.pass_context
-def sample(ctx, warmup_steps, n_steps, guide, guidefile):
+def sample(ctx, warmup_steps, n_steps, guidefile):
     """Sample posterior with Hamiltonian Monte Carlo."""
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model,
             device = device)
+    guide_conf = yaml_config['guide']
     infer_NUTS(cond_model, n_steps, warmup_steps, device = device, guidefile =
-            guidefile, guidetype = guide)
+            guidefile, guide_conf= guide_conf)
 
 @cli.command()
 @click.argument("mockfile")
@@ -440,34 +443,36 @@ def mock(ctx, mockfile):
     print("Save mock data to %s"%mockfile)
 
 @cli.command()
-@click.option("--guide", default = "Delta")
+#@click.option("--guide", default = "Delta")
 @click.option("--guidefile", default = None)
 @click.option("--n_samples", default = 1, help = "Number of samples (default 1).")
 @click.argument("ppdfile")
 @click.pass_context
-def ppd(ctx, guide, guidefile, ppdfile, n_samples):
+def ppd(ctx, guidefile, ppdfile, n_samples):
     """Sample from posterior predictive distribution."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    my_guide = init_guide(cond_model, guide, guidefile = guidefile, device = device)
+    guide_conf = yaml_config['guide']
+    my_guide = init_guide(cond_model, guide_conf, guidefile = guidefile, device = device)
     save_posterior_predictive(model, my_guide, ppdfile, N = n_samples)
 
 @cli.command()
-@click.option("--guide", default = "Delta")
+#@click.option("--guide", default = "Delta")
 @click.option("--guidefile", default = None)
 @click.argument("outfile")
 @click.pass_context
-def lossgrad(ctx, guide, guidefile, outfile):
+def lossgrad(ctx, guidefile, outfile):
     """Store model loss and gradient of guide parameters."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
+    guide_conf = yaml_config['guide']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    my_guide = init_guide(cond_model, guide, guidefile = guidefile, device = device)
+    my_guide = init_guide(cond_model, guide_conf, guidefile = guidefile, device = device)
     save_lossgrad(cond_model, my_guide, outfile)
 
 #@cli.command()
