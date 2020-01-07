@@ -12,7 +12,6 @@ from pyro.distributions.util import eye_like
 class PyrofitGuide(EasyGuide):
     def __init__(self, model):
         super(PyrofitGuide, self).__init__(model)
-        self.mygroup = None
 
     def init(self, site):
         """Return constrained mean or explicit init value."""
@@ -40,6 +39,10 @@ class PyrofitGuide(EasyGuide):
         return group, z_init
 
 class DeltaGuide(PyrofitGuide):
+    def __init__(self, model):
+        super(DeltaGuide, self).__init__(model)
+        self.mygroup = None
+
     def guide(self):
         # Initialize guide if necessary
         if self.mygroup is None:
@@ -55,6 +58,10 @@ class DeltaGuide(PyrofitGuide):
         return model_zs
 
 class DiagonalNormalGuide(PyrofitGuide):
+    def __init__(self, model):
+        super(DiagonalNormalGuide, self).__init__(model)
+        self.mygroup = None
+
     def guide(self):
         if self.mygroup is None:
             self.mygroup, self.z_init_loc = self._get_group()
@@ -66,6 +73,10 @@ class DiagonalNormalGuide(PyrofitGuide):
         return model_zs
 
 class MultivariateNormalGuide(PyrofitGuide):
+    def __init__(self, model):
+        super(MultivariateNormalGuide, self).__init__(model)
+        self.mygroup = None
+
     def guide(self):
         if self.mygroup is None:
             self.mygroup, self.z_init_loc = self._get_group()
@@ -78,6 +89,10 @@ class MultivariateNormalGuide(PyrofitGuide):
         return model_zs
 
 class SuperGuide(PyrofitGuide):
+    def __init__(self, model):
+        super(SuperGuide, self).__init__(model)
+        self.mygroup = None
+
     def guide(self):
         if self.mygroup is None:
             self.mygroup, self.z_init_loc = self._get_group()
