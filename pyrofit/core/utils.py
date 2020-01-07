@@ -651,5 +651,6 @@ def get_components(yaml_entries, type_mapping, device='cpu'):
     return instances
 
 def observe(name, value):
+    # FIXME: Get device information from value
     device = 'cpu'
     pyro.sample(name, dist.Delta(value, log_density = torch.tensor(0., device = device)), obs = value)
