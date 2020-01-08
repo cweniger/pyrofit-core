@@ -3,12 +3,22 @@ pyrofit:
   model: entropy
 conditioning:
   entropy/flux: "$NPZ mock.npz"
+guide:
+  type: SuperGuide
+  groups:
+    main:
+      type: MultivariateNormal
+      match: "entropy/[ab]"
+    slave:
+      type: Delta
+      match: "entropy/x_f"
 entropy[Entropy]:  # Function name
   variables:
-          #x:
-            #sample: [dist.Uniform, -10., 10.]
-      #      init: "$EVAL torch.randn(100, 2)"
-    a:
-      param: 0.1
-    b:
-      param: 1.
+    a: #0.4
+    # param: 0.5
+            sample: [dist.Normal, 0.5, .50]
+            init: 0.5
+    b: 1.00
+    #param: 1.
+            #      sample: [dist.Normal, 1., 0.50]
+            #      init: 1.
