@@ -59,7 +59,7 @@ def _parse_val(key, val, device='cpu', dtype = torch.float32):
         else:
             return torch.tensor(tmp, dtype=dtype, device=device)
     except ValueError:
-        raise ValueError("trying to parse %s"%str(val))
+        raise ValueError("Could not parse %s"%str(val))
 
 def _entry2action(key, val, device):
     global INIT_VALUES
