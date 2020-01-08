@@ -58,7 +58,7 @@ class MAPGuide(PyrofitGuide):
         model_zs = {}
         for site in self.mygroup.prototype_sites:
             model_zs[site['name']] = self.map_estimate(site['name'])
-        return model_zs
+        return guide_z, model_zs
 
 class DeltaGuide(PyrofitGuide):
     """Delta gudie with variable concatentation."""
@@ -74,7 +74,7 @@ class DeltaGuide(PyrofitGuide):
         z_loc = pyro.param(self.prefix+"guide_z_loc", self.z_init_loc)
         guide_z, model_zs = self.mygroup.sample(self.prefix+'guide_z',
                 dist.Delta(z_loc).to_event(1))
-        return model_zs
+        return guide_z, model_zs
 
 class DiagonalNormalGuide(PyrofitGuide):
     def __init__(self, model, guide_conf, prefix = None):
@@ -91,7 +91,7 @@ class DiagonalNormalGuide(PyrofitGuide):
         z_scale = pyro.param(self.prefix+"guide_z_scale", self.z_init_scale, constraint = constraints.positive)
         guide_z, model_zs = self.mygroup.sample(self.prefix+'guide_z',
                 dist.Normal(z_loc, z_scale).to_event(1))
-        return model_zs
+        return guide_z, model_zs
 
 class MultivariateNormalGuide(PyrofitGuide):
     def __init__(self, model, guide_conf, prefix = None):
@@ -109,21 +109,43 @@ class MultivariateNormalGuide(PyrofitGuide):
         # TODO: Flexible initial error
         guide_z, model_zs = self.mygroup.sample(self.prefix+'guide_z',
                 dist.MultivariateNormal(z_loc, scale_tril = z_scale_tril))
-        return model_zs
+        return guide_z, model_zs
+
+#class LinearBias:
+#    def __init__(self, N, M):
+#        self.A_init = torch.zeros(N, M)
+#
+#    def __call__(self, x):
+#        A = pyro.param(self.prefix+"bias", self.A_init)
+#        return A.dot(x)
 
 class SuperGuide(PyrofitGuide):
     def __init__(self, model, guide_conf):
         super(SuperGuide, self).__init__(model)
-        self.guides = []
+        self.guides = {}
+#        self.biases = {}
         for key, entry in guide_conf['groups'].items():
             guide = GUIDE_MAP[entry['type']](model, entry, prefix = key)
-            self.guides.append(guide)
+            self.guides[key] = guide
+#            if 'biased_by' in entry.keys():
+#                for bias in entry['biased_by']:
+#                    bias['group']
+#                    if bias['bias'] == 'linear':
+#                        bias_fn = LinearBias(
+#                    self.biases[key]
 
     def guide(self):
-        model_zs = {}
-        for guide in self.guides:
-            model_zs.update(guide())
-        return model_zs
+        model_zs_con = {}
+        guide_z_dict = {}
+        for key, guide in self.guides.items():
+#            if key in self.biases:
+#                bias = self.biases[key]['bias_fn'](guide_z_dict)
+#            else:
+#                bias = None
+            guide_z, model_zs = guide()
+            model_zs_con.update(model_zs)
+            guide_z_dict[key] = guide_z
+        return None, model_zs_con
 
 GUIDE_MAP = {
         "Delta": DeltaGuide,
@@ -142,17 +164,9 @@ def init_guide(cond_model, guide_conf, guidefile = None, device = 'cpu'):
         guide = proto_guide(cond_model, guide_conf)
     except KeyError:
         raise KeyError("Guide type unknown")
-#    if guidetype == 'Delta':
-#        guide = DeltaGuide(cond_model, guide_conf)
-#    elif guidetype == 'MAP':
-#        guide = MAPGuide(cond_model)
-#    elif guidetype == 'DiagonalNormal':
-#        guide = DiagonalNormalGuide(cond_model, guide_conf)
-#    elif guidetype == 'MultivariateNormal':
-#        guide = MultivariateNormalGuide(cond_model, guide_conf)
-#    elif guidetype == 'SuperGuide':
-#        guide = SuperGuide(cond_model, guide_conf)
-    return guide
+
+    # We hide the first argument (unconstrained parameters) from the main code
+    return lambda *args, **kwargs: guide(*args, **kwargs)[1]
 
 
 #######
