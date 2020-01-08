@@ -1,0 +1,14 @@
+pyrofit:
+  module: examples.entropy
+  model: entropy
+conditioning:
+  entropy/flux: "$NPZ mock.npz"
+entropy[Entropy]:  # Function name
+  variables:
+          #x:
+            #sample: [dist.Uniform, -10., 10.]
+      #      init: "$EVAL torch.randn(100, 2)"
+    a:
+      param: 0.1
+    b:
+      param: 1.
