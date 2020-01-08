@@ -26,7 +26,8 @@ from tqdm import tqdm
 
 from . import yaml_params2
 from . import decorators
-from .guides import DeltaGuide, DiagonalNormalGuide, MultivariateNormalGuide
+from .guides import init_guide
+from .utils import load_param_store
 
 
 ######################
@@ -41,40 +42,6 @@ def get_conditioned_model(yaml_section, model, device='cpu'):
         conditions[name] = yaml_params2._parse_val(name, val, device = device)
     cond_model = pyro.condition(model, conditions)
     return cond_model
-
-def load_param_store(paramfile, device = 'cpu'):
-    """Loads the parameter store from the resume file.
-    """
-    pyro.clear_param_store()
-    try:
-        pyro.get_param_store().load(paramfile, map_location = device)
-        print("Loading guide:", paramfile)
-    except FileNotFoundError:
-        print("Could not open %s. Starting with fresh guide."%paramfile)
-
-def init_guide(cond_model, guide_conf, guidefile = None, device = 'cpu'):
-    guidetype = guide_conf['type']
-    if guidefile is not None:
-        load_param_store(guidefile, device = device)
-#    if guidetype == 'Delta':
-#        guide = AutoDelta(cond_model, init_loc_fn = init_to_sample)
-    if guidetype == 'Delta':
-        guide = DeltaGuide(cond_model)
-    elif guidetype == 'DiagonalNormal':
-        guide = DiagonalNormalGuide(cond_model)
-    elif guidetype == 'MultivariateNormal':
-        guide = MultivariateNormalGuide(cond_model)
-#    elif guidetype == 'DiagonalNormal':
-#        guide = AutoDiagonalNormal(cond_model, init_loc_fn = init_to_sample, init_scale = 0.01)
-#    elif guidetype == 'MultivariateNormal':
-#        guide = AutoMultivariateNormal(cond_model, init_loc_fn = init_to_sample)
-#    elif guidetype == 'LowRankMultivariateNormal':
-#        guide = AutoLowRankMultivariateNormal(cond_model, init_loc_fn = init_to_sample)
-#    elif guidetype == 'LaplaceApproximation':
-#        guide = AutoLaplaceApproximation(cond_model, init_loc_fn = init_to_sample)
-    else:
-        raise KeyError("Guide type unknown")
-    return guide
 
 def save_guide(guidefile):
     print("Saving guide:", guidefile)

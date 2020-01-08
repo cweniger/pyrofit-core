@@ -8,6 +8,7 @@ from pyro.contrib.easyguide import EasyGuide
 import pyro.distributions as dist
 from torch.distributions import constraints
 from pyro.distributions.util import eye_like
+from .utils import load_param_store
 
 class PyrofitGuide(EasyGuide):
     def __init__(self, model):
@@ -28,19 +29,21 @@ class PyrofitGuide(EasyGuide):
 
     def _get_group(self, match = '.*'):
         """Return group and unconstrained initial values."""
+        #print(match)
         group = self.group(match = match)
         z = []
         for site in group.prototype_sites:
             constrained_z = self.init(site)
             transform = biject_to(site['fn'].support)
-            print(site['infer'])
+            #print(site['infer'])
             z.append(transform.inv(constrained_z).reshape(-1))
         z_init = torch.cat(z, 0)
         return group, z_init
 
-class DeltaGuide(PyrofitGuide):
+class MAPGuide(PyrofitGuide):
+    """Delta guide without variable concatenation."""
     def __init__(self, model):
-        super(DeltaGuide, self).__init__(model)
+        super(MAPGuide, self).__init__(model)
         self.mygroup = None
 
     def guide(self):
@@ -57,52 +60,99 @@ class DeltaGuide(PyrofitGuide):
             model_zs[site['name']] = self.map_estimate(site['name'])
         return model_zs
 
-class DiagonalNormalGuide(PyrofitGuide):
-    def __init__(self, model):
-        super(DiagonalNormalGuide, self).__init__(model)
+class DeltaGuide(PyrofitGuide):
+    """Delta gudie with variable concatentation."""
+    def __init__(self, model, guide_conf, prefix = None):
+        super(DeltaGuide, self).__init__(model)
         self.mygroup = None
+        self.guide_conf = guide_conf
+        self.prefix = "" if prefix is None else prefix+"/"
 
     def guide(self):
         if self.mygroup is None:
-            self.mygroup, self.z_init_loc = self._get_group()
+            self.mygroup, self.z_init_loc = self._get_group(self.guide_conf['match'])
+        z_loc = pyro.param(self.prefix+"guide_z_loc", self.z_init_loc)
+        guide_z, model_zs = self.mygroup.sample(self.prefix+'guide_z',
+                dist.Delta(z_loc).to_event(1))
+        return model_zs
+
+class DiagonalNormalGuide(PyrofitGuide):
+    def __init__(self, model, guide_conf, prefix = None):
+        super(DiagonalNormalGuide, self).__init__(model)
+        self.mygroup = None
+        self.guide_conf = guide_conf
+        self.prefix = "" if prefix is None else prefix+"/"
+
+    def guide(self):
+        if self.mygroup is None:
+            self.mygroup, self.z_init_loc = self._get_group(self.guide_conf['match'])
             self.z_init_scale = (self.z_init_loc**2)**0.5*0.01 + 0.01
-        z_loc = pyro.param("guide_z_loc", self.z_init_loc)
-        z_scale = pyro.param("guide_z_scale", self.z_init_scale, constraint = constraints.positive)
-        guide_z, model_zs = self.mygroup.sample('guide_z',
+        z_loc = pyro.param(self.prefix+"guide_z_loc", self.z_init_loc)
+        z_scale = pyro.param(self.prefix+"guide_z_scale", self.z_init_scale, constraint = constraints.positive)
+        guide_z, model_zs = self.mygroup.sample(self.prefix+'guide_z',
                 dist.Normal(z_loc, z_scale).to_event(1))
         return model_zs
 
 class MultivariateNormalGuide(PyrofitGuide):
-    def __init__(self, model):
+    def __init__(self, model, guide_conf, prefix = None):
         super(MultivariateNormalGuide, self).__init__(model)
         self.mygroup = None
+        self.guide_conf = guide_conf
+        self.prefix = "" if prefix is None else prefix+"/"
 
     def guide(self):
         if self.mygroup is None:
-            self.mygroup, self.z_init_loc = self._get_group()
-        z_loc = pyro.param("guide_z_loc", self.z_init_loc)
-        z_scale_tril = pyro.param("guide_z_scale_tril", 0.01*eye_like(z_loc, len(z_loc)),
+            self.mygroup, self.z_init_loc = self._get_group(match = self.guide_conf['match'])
+        z_loc = pyro.param(self.prefix+"guide_z_loc", self.z_init_loc)
+        z_scale_tril = pyro.param(self.prefix+"guide_z_scale_tril", 0.01*eye_like(z_loc, len(z_loc)),
                                 constraint=constraints.lower_cholesky)
-        # TODO: More flexible initial error
-        guide_z, model_zs = self.mygroup.sample('guide_z',
+        # TODO: Flexible initial error
+        guide_z, model_zs = self.mygroup.sample(self.prefix+'guide_z',
                 dist.MultivariateNormal(z_loc, scale_tril = z_scale_tril))
         return model_zs
 
 class SuperGuide(PyrofitGuide):
-    def __init__(self, model):
+    def __init__(self, model, guide_conf):
         super(SuperGuide, self).__init__(model)
-        self.mygroup = None
+        self.guides = []
+        for key, entry in guide_conf['groups'].items():
+            guide = GUIDE_MAP[entry['type']](model, entry, prefix = key)
+            self.guides.append(guide)
 
     def guide(self):
-        if self.mygroup is None:
-            self.mygroup, self.z_init_loc = self._get_group()
-        z_loc = pyro.param("guide_z_loc", self.z_init_loc)
-        z_scale_tril = pyro.param("guide_z_scale_tril", 0.01*eye_like(z_loc, len(z_loc)),
-                                constraint=constraints.lower_cholesky)
-        # TODO: More flexible initial error
-        guide_z, model_zs = self.mygroup.sample('guide_z',
-                dist.MultivariateNormal(z_loc, scale_tril = z_scale_tril))
+        model_zs = {}
+        for guide in self.guides:
+            model_zs.update(guide())
         return model_zs
+
+GUIDE_MAP = {
+        "Delta": DeltaGuide,
+        "MAP": MAPGuide,
+        "DiagonalNormal": DiagonalNormalGuide,
+        "MultivariateNormal": MultivariateNormalGuide,
+        "SuperGuide": SuperGuide,
+        }
+
+def init_guide(cond_model, guide_conf, guidefile = None, device = 'cpu'):
+    guidetype = guide_conf['type']
+    if guidefile is not None:
+        load_param_store(guidefile, device = device)
+    try:
+        proto_guide = GUIDE_MAP[guidetype]
+        guide = proto_guide(cond_model, guide_conf)
+    except KeyError:
+        raise KeyError("Guide type unknown")
+#    if guidetype == 'Delta':
+#        guide = DeltaGuide(cond_model, guide_conf)
+#    elif guidetype == 'MAP':
+#        guide = MAPGuide(cond_model)
+#    elif guidetype == 'DiagonalNormal':
+#        guide = DiagonalNormalGuide(cond_model, guide_conf)
+#    elif guidetype == 'MultivariateNormal':
+#        guide = MultivariateNormalGuide(cond_model, guide_conf)
+#    elif guidetype == 'SuperGuide':
+#        guide = SuperGuide(cond_model, guide_conf)
+    return guide
 
 
 #######

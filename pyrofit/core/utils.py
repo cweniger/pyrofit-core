@@ -654,3 +654,15 @@ def observe(name, value):
     # FIXME: Get device information from value
     device = 'cpu'
     pyro.sample(name, dist.Delta(value, log_density = torch.tensor(0., device = device)), obs = value)
+
+
+def load_param_store(paramfile, device = 'cpu'):
+    """Loads the parameter store from the resume file.
+    """
+    pyro.clear_param_store()
+    try:
+        pyro.get_param_store().load(paramfile, map_location = device)
+        print("Loading guide:", paramfile)
+    except FileNotFoundError:
+        print("Could not open %s. Starting with fresh guide."%paramfile)
+
