@@ -120,7 +120,12 @@ rule:
   input:
     yaml = "{root}.yaml",
   run:
-    shell("pyrofit {input.yaml} fit --n_steps 100")
+    shell("pyrofit {input.yaml} fit --lr 3e-1 --n_steps 300")
+    shell("pyrofit {input.yaml} fit --lr 1e-1 --n_steps 300")
+    shell("pyrofit {input.yaml} fit --lr 3e-2 --n_steps 300")
+    shell("pyrofit {input.yaml} fit --lr 1e-2 --n_steps 300")
+    shell("pyrofit {input.yaml} fit --lr 3e-3 --n_steps 300")
+    shell("pyrofit {input.yaml} fit --lr 1e-3 --n_steps 300")
 
 
 #### Generate lossgrad files
@@ -137,10 +142,7 @@ rule:
 
 #### Collect lossgrad information
 
-ROOT = 'entropy'
-PAR = 'par'
-params = np.loadtxt(PAR+".dat")
-N = len(params)
+N = config["N"]
 
 rule main:
   output:
