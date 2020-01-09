@@ -120,12 +120,12 @@ rule:
   input:
     yaml = "{root}.yaml",
   run:
-    shell("pyrofit {input.yaml} fit --lr 3e-1 --n_steps 300")
-    shell("pyrofit {input.yaml} fit --lr 1e-1 --n_steps 300")
-    shell("pyrofit {input.yaml} fit --lr 3e-2 --n_steps 300")
-    shell("pyrofit {input.yaml} fit --lr 1e-2 --n_steps 300")
-    shell("pyrofit {input.yaml} fit --lr 3e-3 --n_steps 300")
-    shell("pyrofit {input.yaml} fit --lr 1e-3 --n_steps 300")
+    shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 3e-1 --n_steps 200")
+    shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 1e-1 --n_steps 200")
+    shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 3e-2 --n_steps 200")
+    #shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 1e-2 --n_steps 200")
+    #shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 3e-3 --n_steps 200")
+    #shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 1e-3 --n_steps 200")
 
 
 #### Generate lossgrad files
@@ -138,6 +138,18 @@ rule:
     yaml = "{root}.yaml"
   run:
     shell("pyrofit {input.yaml} lossgrad {output.lossgrad}")
+
+
+#### Generate ppd
+
+rule:
+  output:
+    lossgrad = "{root}.ppd.npz",
+  input:
+    guide = "{root}.guide.pt",
+    yaml = "{root}.yaml"
+  run:
+    shell("pyrofit {input.yaml} ppd {output.lossgrad}")
 
 
 #### Collect lossgrad information
