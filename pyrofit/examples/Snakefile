@@ -81,13 +81,12 @@ def plot_image(filename, array):
 
 #### Get best-fit case from list of lossgrad files
 
-def get_min_loss(filenames):
+def get_losses(filenames):
   losses = []
   for filename in filenames:
     loss = np.load(filename)['loss']
-    print(filename, loss)
     losses.append(loss)
-  return np.argmin(losses)
+  return losses
 
 
 #########
@@ -98,13 +97,13 @@ def get_min_loss(filenames):
 
 rule:
   output:
-    yaml = "{root}_{parfile}_{n}.yaml",
+    yaml = "{root}_{par}_{n}.yaml",
   input:
     yaml = "{root}.yaml",
-    parfile = "{parfile}.txt"
+    par = "{par}.dat",
   run:
 #TODO: Update update snippet
-    params = np.loadtxt(input.parfile)
+    params = np.loadtxt(input.par)
     update_snippet = """
     entropy[Entropy]:
       variables:
@@ -128,7 +127,7 @@ rule:
 
 rule:
   output:
-    lossgrad = "{root}.lossgrad.npz"
+    lossgrad = "{root}.lossgrad.npz",
   input:
     guide = "{root}.guide.pt",
     yaml = "{root}.yaml"
@@ -140,39 +139,18 @@ rule:
 
 ROOT = 'entropy'
 PAR = 'par'
-params = np.loadtxt(PAR+".txt")
+params = np.loadtxt(PAR+".dat")
 N = len(params)
 
 rule main:
   output:
+    dat = "{root}_{par}.losses.dat",
   input:
-    lossgrads = ['%s_%s_%i.lossgrad.npz'%(ROOT, PAR, i) for i in range(N)]
+    lossgrads = ['{root}_{par}_%i.lossgrad.npz'%i for i in range(N)],
+    par = '{par}.dat'
   run:
-    print(input.lossgrads)
-
-#    for i in range(N):
-#      shell("echo {i}")
-
-#rule step1_grad:  # Generate gradient file for existing fit (.lossgrad.npz)
-#  output:
-#    yaml     = "{root}_mesh.yaml",
-#    lossgrad = "{root}.lossgrad.npz"
-#  input:
-#    yaml  = "{root}.yaml",
-#    guide = "{root}.guide.pt"
-#  run:
-#    updates_mesh = """
-#    alpha.SubhalosMesh[NFWSubhalosMesh]:
-#      variables:
-#        log10_M_200c: '$NPZ seed_positions.npz[M]'
-#        x: '$NPZ seed_positions.npz[x]'
-#        y: '$NPZ seed_positions.npz[y]'
-#        norm:
-#          param: '$NPZ seed_positions.npz[norm]'
-#        r_t_over_r_200c: 2.0
-#        c_200c: 19.94
-#        z_src: 2.5
-#        z_sub: 0.6
-#    """
-#    evolve_yaml(input.yaml, output.yaml, yaml.load(updates_mesh))
-#    shell("pyrofit {output.yaml} lossgrad --guidefile {input.guide} {output.lossgrad}")
+    loss = np.array(get_losses(input.lossgrads))
+    print(loss)
+    params = np.loadtxt(input.par)
+    A = np.vstack([params, loss]).T
+    np.savetxt(output.dat, A)
