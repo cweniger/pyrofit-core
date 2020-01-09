@@ -49,8 +49,8 @@ class Entropy:
         #loss = -1*torch.log(d).sum()/35  * 1e-0
 
         # Construct weights
-        w = torch.linspace(0, 50, 50)[4:].unsqueeze(0)
-        w = w*torch.exp(-w/5)
+        w = torch.linspace(0, 50, 50)[4:].unsqueeze(0)**2
+        w = w*torch.exp(-w/200)
         w /= w.sum()
 
         # Loss function obtained from weighted sum of log of distances
