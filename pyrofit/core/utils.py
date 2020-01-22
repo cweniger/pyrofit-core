@@ -407,7 +407,8 @@ def bilinear_interp(x_new_mg, y_new_mg, x_mg, y_mg, img):
     grid = torch.zeros(torch.Size([1]) + x_new_mg.shape + torch.Size([2]))
     grid[:, :, :, 0] = y_new_mg / half_height
     grid[:, :, :, 1] = x_new_mg / half_width
-    return F.grid_sample(img.unsqueeze(0).unsqueeze(0), grid).squeeze()
+    return F.grid_sample(img.unsqueeze(0).unsqueeze(0), grid,
+                         align_corners=True).squeeze()
 
 
 class TorchInterp3d:
@@ -433,7 +434,7 @@ class TorchInterp3d:
         grid[0,:,:,:,2] = xt
         grid[0,:,:,:,1] = yt
         grid[0,:,:,:,0] = zt
-        return nn.functional.grid_sample(self.data, grid)[0]
+        return nn.functional.grid_sample(self.data, grid, align_corners=True)[0]
     
 
 class TorchInterp2d:
@@ -454,7 +455,7 @@ class TorchInterp2d:
         grid = torch.zeros((1, len(x), len(y), 2)).to(self.device)
         grid[0,:,:,0] = xt
         grid[0,:,:,1] = yt
-        return nn.functional.grid_sample(self.data, grid)[0]
+        return nn.functional.grid_sample(self.data, grid, align_corners=True)[0]
 
 
 class ConvKernel2dFFT:
