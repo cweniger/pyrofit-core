@@ -1,0 +1,24 @@
+pyrofit:
+  module: examples.entropy
+  model: entropy
+conditioning:
+  entropy/flux: "$NPZ mock.npz"
+guide:
+  type: SuperGuide
+  groups:
+          #    main:
+          #      type: MultivariateNormal
+          #      match: "entropy/[ab]"
+    slave:
+      type: Delta
+      match: "entropy/x_f"
+entropy[Entropy]:  # Function name
+  variables:
+    a: 0.5
+    #param: 0.5
+    #sample: [dist.Normal, 0.5, .50]
+    #  init: 0.5
+    b: 1.00
+    #param: 1.
+            #      sample: [dist.Normal, 1., 0.50]
+            #      init: 1.

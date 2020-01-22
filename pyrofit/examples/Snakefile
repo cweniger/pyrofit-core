@@ -1,0 +1,178 @@
+# Snakemake file for subhalo fits
+
+import snakemake
+import torch
+import numpy as np
+try:
+  from ruamel_yaml import YAML
+except:
+  from ruamel.yaml import YAML
+yaml=YAML()
+import matplotlib
+matplotlib.use("Agg")
+import pylab as plt
+
+N_MAX = 100000
+
+
+####################
+# Helper functions
+####################
+
+#### Recursive YAML file updates
+
+def rec_yaml_update(yaml, updates):
+  for key, value in updates.items():
+    if isinstance(value, dict) and isinstance(yaml.get(key, None), dict):
+      rec_yaml_update(yaml[key], value)
+    else:
+      yaml[key] = value
+
+def evolve_yaml(infile, outfile, updates):
+  print(infile)
+  print(outfile)
+  print(updates)
+  with open(infile, 'r') as f:
+    data = yaml.load(f)
+  rec_yaml_update(data, updates)
+  with open(outfile, 'w') as f:
+    yaml.dump(data, f)
+
+
+#### Red infos from guides
+
+def get_guide(guide):
+  pt = torch.load(guide)['params']
+  results = {}
+  for key, value in pt.items():
+    results[key] = pt[key].detach().cpu().numpy()
+  return results
+
+
+#### Write NPZ files
+
+def dump_npz(filename, data):
+  np.savez(filename, **data)
+
+
+#### Get maximum gradient value from gradient file
+
+def get_bf_from_grad(lossgrad):
+  data = np.load(lossgrad)
+  norm = data['alpha.SubhalosMesh/norm'][:,:,5]
+  i, j = np.unravel_index(norm.argmin(), norm.shape)
+  print("Optimal indices from %s:"%lossgrad, i, j)
+  seed_positions = np.load("seed_positions.npz")
+  x = seed_positions['x'][i, j, 5]
+  y = seed_positions['y'][i, j, 5]
+  print("Optimal positions from %s: x=%.3f y=%.3f"%(lossgrad, x, y))
+  return x, y
+
+
+#### Plotting intermediate results
+
+def plot_image(filename, array):
+  plt.clf()
+  vmin = np.min(array)
+  plt.imshow(array, origin = 'lower')
+  plt.colorbar()
+  plt.savefig(filename)
+
+
+#### Get best-fit case from list of lossgrad files
+
+def get_min_loss(filenames):
+  losses = []
+  for filename in filenames:
+    loss = np.load(filename)['loss']
+    print(filename, loss)
+    losses.append(loss)
+  return np.argmin(losses)
+
+
+#########
+# Rules
+#########
+
+#### Generate parametrized YAML files
+
+rule:
+  output:
+    yaml = "{root}_{parfile}_{n}.yaml",
+  input:
+    yaml = "{root}.yaml",
+    parfile = "{parfile}.txt"
+  run:
+#TODO: Update update snippet
+    params = np.loadtxt(input.parfile)
+    update_snippet = """
+    entropy[Entropy]:
+      variables:
+        a: %f
+    """%params[int(wildcards.n)]
+    evolve_yaml(input.yaml, output.yaml, yaml.load(update_snippet))
+
+
+#### Parameter optimization
+
+rule:
+  output:
+    guide = "{root}.guide.pt",
+  input:
+    yaml = "{root}.yaml",
+  run:
+    shell("pyrofit {input.yaml} fit --n_steps 100")
+
+
+#### Generate lossgrad files
+
+rule:
+  output:
+    lossgrad = "{root}.lossgrad.npz"
+  input:
+    guide = "{root}.guide.pt",
+    yaml = "{root}.yaml"
+  run:
+    shell("pyrofit {input.yaml} lossgrad {output.lossgrad}")
+
+
+#### Collect lossgrad information
+
+ROOT = 'entropy'
+PAR = 'par'
+params = np.loadtxt(PAR+".txt")
+N = len(params)
+
+rule main:
+  output:
+  input:
+    lossgrads = ['%s_%s_%i.lossgrad.npz'%(ROOT, PAR, i) for i in range(N)]
+  run:
+    print(input.lossgrads)
+
+#    for i in range(N):
+#      shell("echo {i}")
+
+#rule step1_grad:  # Generate gradient file for existing fit (.lossgrad.npz)
+#  output:
+#    yaml     = "{root}_mesh.yaml",
+#    lossgrad = "{root}.lossgrad.npz"
+#  input:
+#    yaml  = "{root}.yaml",
+#    guide = "{root}.guide.pt"
+#  run:
+#    updates_mesh = """
+#    alpha.SubhalosMesh[NFWSubhalosMesh]:
+#      variables:
+#        log10_M_200c: '$NPZ seed_positions.npz[M]'
+#        x: '$NPZ seed_positions.npz[x]'
+#        y: '$NPZ seed_positions.npz[y]'
+#        norm:
+#          param: '$NPZ seed_positions.npz[norm]'
+#        r_t_over_r_200c: 2.0
+#        c_200c: 19.94
+#        z_src: 2.5
+#        z_sub: 0.6
+#    """
+#    evolve_yaml(input.yaml, output.yaml, yaml.load(updates_mesh))
+#    shell("pyrofit {output.yaml} lossgrad --guidefile {input.guide} {output.lossgrad}")

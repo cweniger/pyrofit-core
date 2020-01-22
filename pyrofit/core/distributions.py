@@ -7,8 +7,12 @@ from torch.distributions.transformed_distribution import (
     TransformedDistribution)
 from torch.distributions import Normal
 from torch.distributions.transforms import PowerTransform, ExpTransform
+
+import pyro
 import pyro.distributions as dist
 from torch.distributions import constraints
+
+from pykeops.torch import LazyTensor, Vi, Vj
 
 try:
     from torchinterp1d import Interp1d
@@ -57,10 +61,10 @@ class InverseTransformSampling(dist.TorchDistribution):
         self._support = constraints.interval(grid[0], grid[-1])  # define finite support
 
         cdf, grid, norm = self._get_cdf(log_prob, grid)
-        self.D = np.prod(tuple(self._prob_shape), dtype = np.int32)  # Number of pdfs
-        self.R = np.prod(tuple(self.batch_shape), dtype = np.int32)  # Number of batch evaluations
-        self.R_D = int(self.R/self.D)  # Batch evaluations with identical set of pdfs
-        self.x = cdf.reshape(N, self.D).permute(1, 0)  # Prepare for interp1d
+        self.D = self._prob_shape.numel()  # Number of pdfs
+        self.R = self.batch_shape.numel()  # Number of batch evaluations
+        self.R_D = int(self.R/self.D)      # Batch evaluations with identical set of pdfs
+        self.x = cdf.reshape(N, self.D).permute(1, 0)   # Prepare for interp1d
         self.y = grid.reshape(N, self.D).permute(1, 0)  # Prepare for interp1d
         self.log_scale = torch.log(norm)
 
@@ -86,11 +90,14 @@ class InverseTransformSampling(dist.TorchDistribution):
         #mask = torch.cat((torch.ByteTensor([0]), (cdf[1:]-cdf[:-1]) > th), 0)
         #return cdf[mask], grid[mask], norm
 
-    def rsample(self, sample_shape = torch.Size()):
-        P = np.prod(tuple(sample_shape), dtype = np.int16)
+    def ppf(self, x):
+        return self.interp1d(self.x, self.y, x)
+
+    def rsample(self, sample_shape=torch.Size()):
+        P = torch.Size(sample_shape).numel()
         xnew = torch.rand(self.D, P*self.R_D, device = self.device)
-        out = self.interp1d(self.x, self.y, xnew)  # (D, P*R/D)
-        return out.permute(1,0).reshape(self.shape(sample_shape))
+        out = self.ppf(xnew)  # (D, P*R/D)
+        return out.permute(1, 0).reshape(self.shape(sample_shape))
 
     def __call__(self, *args, **kwargs):
         return self.rsample(*args, **kwargs)
@@ -105,6 +112,59 @@ class InverseTransformSampling(dist.TorchDistribution):
         else:
             expand_shape = batch_shape
         return type(self)(self._log_prob, self._grid, expand_shape = expand_shape)
+
+
+standard_normal = dist.Normal(0., 1.)
+
+
+class Entropy:
+    def __init__(self, k=50, kmin=4, device='cpu'):
+        self.weights = self.get_weights(k, kmin, device)
+
+    @staticmethod
+    def get_weights(k=50, kmin=4, device='cpu'):
+        w = torch.arange(float(kmin), float(k))
+        w = w * torch.exp(-w / 20)
+        weights = torch.zeros(k, device=device)
+        weights[kmin:] = w / w.sum()
+        return weights
+
+    @staticmethod
+    def _kNN(x, y, K):
+        """Get K nearest neighbours using keops"""
+        x_i = LazyTensor(x[:, None, :])  # (M, 1, ndim)
+        y_j = LazyTensor(y[None, :, :])  # (1, N, ndim)
+        D_ij = ((x_i - y_j)**2).sum(-1)  # (M, N) symbolic matrix of squared distances
+        return D_ij.argKmin(K, dim=1)  # (M, K) Minimum indices
+
+    @staticmethod
+    def _kNN_d2(x, y, K):
+        i = LazyTensor.sqdist(Vi(x), Vj(y)).argKmin(K, dim=1)
+        return (x[:, None, :] - y[i]).pow(2.).sum(-1)
+
+    def entropy_loss(self, x, d_min=1e-3):
+        ndim = x.shape[-1]
+        d2 = Entropy._kNN_d2(x, x, len(self.weights)+1)[:, 1:]  # [0] was the point itself
+        return - ndim/2 * (self.weights * torch.log(d2 + d_min**2)).sum()
+
+
+class GaussianSampler:
+    def __init__(self, log_prob: callable, rng: tuple, grid_size=200, logspaced=True):
+        self.log_prob = log_prob
+        self.sampler = InverseTransformSampling(
+            log_prob=self.log_prob,
+            grid=(torch.logspace if logspaced else torch.linspace)(*rng, grid_size))
+
+    @staticmethod
+    def draw(name: str, shape: tuple):
+        return pyro.sample(name, standard_normal.expand_by(tuple(shape)))
+
+    def transform_sample(self, sample):
+        return self.sampler.ppf(standard_normal.cdf(sample)).reshape(sample.shape)
+
+    def sample(self, name: str, shape: tuple):
+        return self.transform_sample(self.draw(name, shape))
+
 
 def test1():
     import pyro

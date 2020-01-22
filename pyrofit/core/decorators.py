@@ -22,7 +22,7 @@ def get_wrapped_class(name):
 ####################################################
 
 Yaml = TypeVar("Yaml")
-RESERVED = ['pyrofit', 'conditioning']
+RESERVED = ['pyrofit', 'conditioning', 'guide']
 
 
 ####################################
@@ -41,8 +41,7 @@ def split_name(name):
 YAML_CONFIG = None
 SETTINGS = defaultdict(lambda: {})
 VARIABLES = defaultdict(lambda: {})
-CLASSES = {}#defaultdict(lambda: None)
-
+CLASSES = {} #defaultdict(lambda: None)
 
 def load_yaml(yamlfile, device='cpu'):
     """
@@ -54,7 +53,6 @@ def load_yaml(yamlfile, device='cpu'):
         YAML_CONFIG = yaml.load(stream, Loader=yaml.FullLoader)
 
     return refresh_config(device)
-
 
 def refresh_config(device="cpu"):
     """
