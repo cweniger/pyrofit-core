@@ -114,9 +114,6 @@ class InverseTransformSampling(dist.TorchDistribution):
         return type(self)(self._log_prob, self._grid, expand_shape = expand_shape)
 
 
-standard_normal = dist.Normal(0., 1.)
-
-
 class Entropy:
     def __init__(self, k=50, kmin=4, device='cpu'):
         self.weights = self.get_weights(k, kmin, device)
@@ -149,18 +146,23 @@ class Entropy:
 
 
 class GaussianSampler:
-    def __init__(self, log_prob: callable, rng: tuple, grid_size=200, logspaced=True):
+    def __init__(self, log_prob: callable, rng: tuple, grid_size=200, logspaced=True, device='cpu'):
+        self.device = device
+        self.standard_normal = dist.Normal(
+            torch.tensor(0., device=device),
+            torch.tensor(1., device=device)
+        )
+
         self.log_prob = log_prob
         self.sampler = InverseTransformSampling(
             log_prob=self.log_prob,
-            grid=(torch.logspace if logspaced else torch.linspace)(*rng, grid_size))
+            grid=(torch.logspace if logspaced else torch.linspace)(*rng, grid_size, device=device))
 
-    @staticmethod
-    def draw(name: str, shape: tuple):
-        return pyro.sample(name, standard_normal.expand_by(tuple(shape)))
+    def draw(self, name: str, shape: tuple):
+        return pyro.sample(name, self.standard_normal.expand_by(shape))
 
     def transform_sample(self, sample):
-        return self.sampler.ppf(standard_normal.cdf(sample)).reshape(sample.shape)
+        return self.sampler.ppf(self.standard_normal.cdf(sample)).reshape(sample.shape)
 
     def sample(self, name: str, shape: tuple):
         return self.transform_sample(self.draw(name, shape))
