@@ -7,6 +7,7 @@ from torch.distributions.transformed_distribution import (
     TransformedDistribution)
 from torch.distributions import Normal
 from torch.distributions.transforms import PowerTransform, ExpTransform
+import warnings
 
 import pyro
 import pyro.distributions as dist
@@ -85,7 +86,7 @@ class InverseTransformSampling(dist.TorchDistribution):
         norm = dp_cumsum[-1]
         cdf = dp_cumsum/norm
         if (cdf[1:] - cdf[:-1]).min() == 0.:
-            print("WARNING: PDF inversion beyond machine precision.")
+            warnings.warn("WARNING: PDF inversion beyond machine precision.")
         return cdf, grid, norm
         #mask = torch.cat((torch.ByteTensor([0]), (cdf[1:]-cdf[:-1]) > th), 0)
         #return cdf[mask], grid[mask], norm
@@ -112,9 +113,6 @@ class InverseTransformSampling(dist.TorchDistribution):
         else:
             expand_shape = batch_shape
         return type(self)(self._log_prob, self._grid, expand_shape = expand_shape)
-
-
-standard_normal = dist.Normal(0., 1.)
 
 
 class Entropy:
@@ -149,18 +147,20 @@ class Entropy:
 
 
 class GaussianSampler:
-    def __init__(self, log_prob: callable, rng: tuple, grid_size=200, logspaced=True):
+    def __init__(self, log_prob: callable, rng: tuple, grid_size=200, logspaced=True, device="cpu"):
+        self.device = device
         self.log_prob = log_prob
         self.sampler = InverseTransformSampling(
             log_prob=self.log_prob,
-            grid=(torch.logspace if logspaced else torch.linspace)(*rng, grid_size))
+            grid=(torch.logspace if logspaced else torch.linspace)(*rng, grid_size, device=self.device))
+        self.standard_normal = dist.Normal(torch.tensor(0., device=device),
+                                           torch.tensor(1., device=device))
 
-    @staticmethod
-    def draw(name: str, shape: tuple):
-        return pyro.sample(name, standard_normal.expand_by(tuple(shape)))
+    def draw(self, name: str, shape: tuple):
+        return pyro.sample(name, self.standard_normal.expand_by(tuple(shape)))
 
     def transform_sample(self, sample):
-        return self.sampler.ppf(standard_normal.cdf(sample)).reshape(sample.shape)
+        return self.sampler.ppf(self.standard_normal.cdf(sample)).reshape(sample.shape)
 
     def sample(self, name: str, shape: tuple):
         return self.transform_sample(self.draw(name, shape))
