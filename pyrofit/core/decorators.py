@@ -1,4 +1,5 @@
 from typing import TypeVar
+import importlib
 from collections import defaultdict
 import inspect
 import yaml
@@ -59,22 +60,27 @@ def refresh_config(device="cpu"):
     Replaces YAML_CONFIG with a new configuration and re-parses all settings
     and variables.
     """
+    # Import the module where the model's resources live
+    module_name = YAML_CONFIG["pyrofit"]["module"]
+    module = importlib.import_module(f"pyrofit.{module_name}")
+
     for key, entry in YAML_CONFIG.items():
         # Ignore reserved keyword entries
         if key in RESERVED or entry is None:
             continue
+
         # If instance...
         name, cls = split_name(key)
         if cls is None:
             VARIABLES[name] = yaml2actions(name, entry, device = device)
         else:
             if 'variables' in entry.keys() and entry['variables'] is not None:
-                VARIABLES[name] = yaml2actions(name, entry['variables'], device = device)
+                VARIABLES[name] = yaml2actions(name, entry['variables'], module=module, device = device)
             if 'settings' in entry.keys() and entry['settings'] is not None:
-                SETTINGS[name] = yaml2settings(entry['settings'], device = device)
+                SETTINGS[name] = yaml2settings(entry['settings'], module=module, device = device)
             CLASSES[name] = cls
 
-    return YAML_CONFIG
+    return YAML_CONFIG, module
 
 
 #########################

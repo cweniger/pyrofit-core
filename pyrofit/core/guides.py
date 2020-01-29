@@ -29,13 +29,11 @@ class PyrofitGuide(EasyGuide):
 
     def _get_group(self, match = '.*'):
         """Return group and unconstrained initial values."""
-        #print(match)
         group = self.group(match = match)
         z = []
         for site in group.prototype_sites:
             constrained_z = self.init(site)
             transform = biject_to(site['fn'].support)
-            #print(site['infer'])
             z.append(transform.inv(constrained_z).reshape(-1))
         z_init = torch.cat(z, 0)
         return group, z_init

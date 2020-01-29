@@ -11,6 +11,7 @@ import importlib
 import inspect
 import torch
 import pyro
+import pickle
 from pyro import poutine
 from pyro.contrib.autoguide import (AutoDelta, AutoLowRankMultivariateNormal,
         AutoLaplaceApproximation, AutoDiagonalNormal, AutoMultivariateNormal,
@@ -63,9 +64,10 @@ def make_transformed_pe(potential_fn, transform, unpack_fn):
         return potential_fn(d) + logdet
 
     return transformed_potential_fn
-    
 
-def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', guidefile = None, guide_conf = None):
+
+def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu',
+               guidefile = None, guide_conf = None, mcmcfile=None):
     """Runs the NUTS HMC algorithm.
 
     Saves the samples and weights as well as a netcdf file for the run.
@@ -110,9 +112,20 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
     nuts_kernel.initial_params = initial_params
 
     # Run
-    posterior = MCMC(
+    mcmc = MCMC(
         nuts_kernel, n_steps, warmup_steps=warmup_steps,
-        num_chains=n_chains).run()
+        initial_params=initial_params, num_chains=n_chains
+    )
+    mcmc.run()
+
+    # This block lets the posterior be pickled
+    mcmc.sampler = None
+    mcmc.kernel.potential_fn = None
+    mcmc._cache = {}
+
+    print(f"Saving MCMC object to {mcmcfile}")
+    with open(mcmcfile, "wb") as f:
+        pickle.dump(mcmc, f, pickle.HIGHEST_PROTOCOL)
 
 
 def infer_VI(cond_model, guide_conf, guidefile, n_steps, lr = 1e-3, n_write=300,
@@ -176,7 +189,7 @@ def infer_VI(cond_model, guide_conf, guidefile, n_steps, lr = 1e-3, n_write=300,
 
             if len(losses) > 100:
                 dl = (np.mean(losses[-100:-80]) - np.mean(losses[-20:]))/80
-                if dl < conv_th:
+                if conv_th > 0 and dl < conv_th:
                     print("Convergence criterion reached: d_loss/d_step < %.3e"%conv_th)
                     break
 
@@ -276,6 +289,11 @@ def save_mock(model, filename, use_init_values = True):
     traced_model = poutine.trace(model)
     trace = traced_model.get_trace()
 
+    for name, val in trace.nodes.items():
+        print(name, val)
+
+    print(f"Mock data log prob sum: {trace.log_prob_sum()}")
+
     mock = {}
     for tag in trace:
         entry = trace.nodes[tag]
@@ -318,27 +336,22 @@ def cli(ctx, device, yamlfile):
     ctx.ensure_object(dict)
     print(
         """
-         (                         (                 
-         )\ )                      )\ )           )  
-        (()/(   (      (          (()/(   (    ( /(  
-         /(_))  )\ )   )(     (    /(_))  )\   )\()) 
-        (_))   (()/(  (()\    )\  (_))_| ((_) (_))/  
-        | _ \   )(_))  ((_)  ((_) | |_    (_) | |_   
-        |  _/  | || | | '_| / _ \ | __|   | | |  _|  
-        |_|     \_, | |_|   \___/ |_|     |_|  \__|  
-                |__/                                 
+         (                         (
+         )\ )                      )\ )           )
+        (()/(   (      (          (()/(   (    ( /(
+         /(_))  )\ )   )(     (    /(_))  )\   )\())
+        (_))   (()/(  (()\    )\  (_))_| ((_) (_))/
+        | _ \   )(_))  ((_)  ((_) | |_    (_) | |_
+        |  _/  | || | | '_| / _ \ | __|   | | |  _|
+        |_|     \_, | |_|   \___/ |_|     |_|  \__|
+                |__/
 
           high-dimensional modeling for everyone
         """
     )
 
-#    with open(yamlfile, "r") as stream:
-        #yaml_config = yaml.load(stream)
-    yaml_config = decorators.load_yaml(yamlfile, device = device)
-
-    # Import module
-    module_name = yaml_config['pyrofit']['module']
-    my_module = importlib.import_module("pyrofit."+module_name)
+    # Load the model's module and (re)parse all settings and variables
+    yaml_config, my_module = decorators.load_yaml(yamlfile, device = device)
 
     # Get model...
     model_name = yaml_config['pyrofit']['model']
@@ -385,8 +398,9 @@ def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th):
 @click.option("--warmup_steps", default = 100)
 #@click.option("--guide", default = None)
 @click.option("--guidefile", default = None)
+@click.option("--mcmcfile", default=None)
 @click.pass_context
-def sample(ctx, warmup_steps, n_steps, guidefile):
+def sample(ctx, warmup_steps, n_steps, guidefile, mcmcfile):
     """Sample posterior with Hamiltonian Monte Carlo."""
     model = ctx.obj['model']
     device = ctx.obj['device']
@@ -394,8 +408,12 @@ def sample(ctx, warmup_steps, n_steps, guidefile):
     cond_model = get_conditioned_model(yaml_config["conditioning"], model,
             device = device)
     guide_conf = yaml_config['guide']
-    infer_NUTS(cond_model, n_steps, warmup_steps, device = device, guidefile =
-            guidefile, guide_conf= guide_conf)
+
+    if mcmcfile is None:
+        mcmcfile = ctx.obj['yamlfile'][:-5] + ".mcmc.pkl"
+
+    infer_NUTS(cond_model, n_steps, warmup_steps, device=device,
+               guidefile=guidefile, guide_conf=guide_conf, mcmcfile=mcmcfile)
 
 @cli.command()
 @click.argument("mockfile")
