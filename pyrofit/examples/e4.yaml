@@ -1,0 +1,18 @@
+pyrofit:
+  module: examples.e4
+  model: entropy
+conditioning:
+  entropy/obs: "$NPZ mock_e4.npz"
+guide:
+  type: Delta
+  match: .*
+entropy[Entropy]:  # Function name
+  variables:
+    a: #1.0
+      param: 10.0
+    #sample: [dist.Normal, 0.5, .50]
+    #  init: 0.5
+    b: 1.00
+    #param: 1.
+            #      sample: [dist.Normal, 1., 0.50]
+            #      init: 1.
