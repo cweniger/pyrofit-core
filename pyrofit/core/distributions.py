@@ -72,6 +72,10 @@ class InverseTransformSampling(dist.TorchDistribution):
         self.interp1d = Interp1d()
 
     @property
+    def arg_constraints(self):
+        return {}
+
+    @property
     def support(self):
         return self._support
 

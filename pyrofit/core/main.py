@@ -289,9 +289,6 @@ def save_mock(model, filename, use_init_values = True):
     traced_model = poutine.trace(model)
     trace = traced_model.get_trace()
 
-    for name, val in trace.nodes.items():
-        print(name, val)
-
     print(f"Mock data log prob sum: {trace.log_prob_sum()}")
 
     mock = {}
