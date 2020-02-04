@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import importlib
 import torch
 from torch.distributions import biject_to
 import pyro
@@ -40,6 +41,29 @@ class PyrofitGuide(EasyGuide):
         z_init = torch.cat(z, 0)
         return group, z_init
 
+    def _get_orig_sampler(self, match = '.*'):
+        """Return constrained initial values and prior sampler."""
+        group = self.group(match = match)
+
+        # Generate constrained
+        z_con = []
+        for site in group.prototype_sites:
+            z_con_init = self.init(site)
+            z_con.append(z_con_init.reshape(-1))
+        z_con_init = torch.cat(z_con, 0)
+
+        def sampler():
+            z_con = []
+            model_zs = {}
+            for site in group.prototype_sites:
+                val = pyro.sample(site['name'], site['fn'])
+                model_zs[site['name']] = val
+                z_con.append(val.reshape(-1))
+            z_con = torch.cat(z_con, 0)
+            return z_con, model_zs
+
+        return sampler, z_con_init
+
 class MAPGuide(PyrofitGuide):
     """Delta guide without variable concatenation."""
     def __init__(self, model):
@@ -75,6 +99,77 @@ class DeltaGuide(PyrofitGuide):
         guide_z, model_zs = self.mygroup.sample(self.prefix+'guide_z',
                 dist.Delta(z_loc).to_event(1))
         return guide_z, model_zs
+
+class ProfileLikelihood(PyrofitGuide):
+    """Profile likelihood guide."""
+    def __init__(self, model, guide_conf, prefix = None):
+        super(ProfileLikelihood, self).__init__(model)
+        self.mygroup0 = None
+        self.mygroup1 = None
+        self.guide_conf = guide_conf
+        self.prefix = "" if prefix is None else prefix+"/"
+
+        if self.guide_conf['mode'] == 'linear': self.func = self._linear
+        if self.guide_conf['mode'] == 'grid': self.func = self._grid
+        if self.guide_conf['mode'] == 'NN': self.func = self._NN
+
+    def _NN(self, z0):
+        layers = self.guide_conf['layers']
+        b0 = pyro.param(self.prefix+"guide_b0", torch.randn(layers[0]))
+        A0 = pyro.param(self.prefix+"guide_A0", 0.1*torch.randn((layers[0], self.shape0[0])))
+        b1 = pyro.param(self.prefix+"guide_b1", torch.randn(layers[1]))
+        A1 = pyro.param(self.prefix+"guide_A1", 0.1*torch.randn((layers[1], layers[0])))
+        b2 = pyro.param(self.prefix+"guide_b2", torch.randn(self.shape1[0]))
+        A2 = pyro.param(self.prefix+"guide_A2", 0.1*torch.randn((self.shape1[0], layers[1])))
+
+        A0d = pyro.param(self.prefix+"guide_A0d", 0.1*torch.randn((layers[0], self.shape0[0])))
+        A1d = pyro.param(self.prefix+"guide_A1d", 0.1*torch.randn((layers[1], self.shape0[0])))
+        A2d = pyro.param(self.prefix+"guide_A2d", 0.1*torch.randn((self.shape1[0], self.shape0[0])))
+
+        z0 = z0-1.1
+        z01 = torch.relu(b0 + (A0*z0).sum(1))  + (A0d*z0).sum(1)
+        z02 = torch.relu(b1 + (A1*z01).sum(1)) + (A1d*z0).sum(1)
+        z1  = b2 + (A2*z02).sum(1) + (A2d*z0).sum(1)
+        return z1
+
+    def _grid(self, z0):
+        N = 10
+        sigma = 0.5
+        pos0 = torch.tensor([1.0, -2.0])
+        pos = pyro.param(self.prefix+"guide_pos", torch.randn((N, self.shape0[0]))+pos0)
+        pos = pos.detach()
+        val = pyro.param(self.prefix+"guide_val", 1*torch.randn((N, self.shape1[0])))
+        b0 = pyro.param(self.prefix+"guide_b0", torch.randn((self.shape1[0],)))
+        w = torch.exp(-((z0-pos)**2).sum(1)/2/sigma**2)
+        b = (w.unsqueeze(1)*val).sum(0) + 0*b0
+        return b
+
+    def _linear(self, z0):
+        b = pyro.param(self.prefix+"guide_b", 0.1*torch.randn(self.shape1))
+        #b0 = pyro.param(self.prefix+"guide_b0", 0.1*torch.randn(self.shape0))
+        A = pyro.param(self.prefix+"guide_A", 0.1*torch.randn(self.shape1 + self.shape0))
+        z0[1] = z0[1] + 2
+        z0[0] = z0[0] - 1.0
+        z1 = b + (A*(z0)).sum(1)
+        return z1
+
+    def guide(self):
+        if self.mygroup0 is None:
+            self.mysampler0, self.z0_init_loc = self._get_orig_sampler(self.guide_conf['match_master'])
+            self.mygroup1,   self.z1_init_loc = self._get_group(self.guide_conf['match_slave'])
+            self.shape0 = self.z0_init_loc.shape
+            self.shape1 = self.z1_init_loc.shape
+
+        guide_z0, model_zs0 = self.mysampler0()
+
+        z1_loc = self.func(guide_z0)
+        guide_z1, model_zs1 = self.mygroup1.sample(self.prefix+'guide_z_slave', dist.Delta(z1_loc).to_event(1))
+
+        # Combine model predictions
+        model_zs = model_zs0
+        model_zs.update(model_zs1)
+
+        return None, model_zs
 
 class DiagonalNormalGuide(PyrofitGuide):
     def __init__(self, model, guide_conf, prefix = None):
@@ -147,12 +242,23 @@ class SuperGuide(PyrofitGuide):
             guide_z_dict[key] = guide_z
         return None, model_zs_con
 
+def get_custom_guide(cond_model, guide_conf):
+    module_name = guide_conf['module']
+    my_module = importlib.import_module("pyrofit."+module_name)
+    name = guide_conf['name']
+    guide = getattr(my_module, name)
+
+    return guide
+
+
 GUIDE_MAP = {
         "Delta": DeltaGuide,
         "MAP": MAPGuide,
         "DiagonalNormal": DiagonalNormalGuide,
         "MultivariateNormal": MultivariateNormalGuide,
-        "SuperGuide": SuperGuide,
+        #"Custom": get_custom_guide,
+        "ProfileLikelihood": ProfileLikelihood,
+        "SuperGuide": SuperGuide
         }
 
 def init_guide(cond_model, guide_conf, guidefile = None, device = 'cpu'):
@@ -161,9 +267,9 @@ def init_guide(cond_model, guide_conf, guidefile = None, device = 'cpu'):
         load_param_store(guidefile, device = device)
     try:
         proto_guide = GUIDE_MAP[guidetype]
-        guide = proto_guide(cond_model, guide_conf)
     except KeyError:
         raise KeyError("Guide type unknown")
+    guide = proto_guide(cond_model, guide_conf)
 
     # We hide the first argument (unconstrained parameters) from the main code
     return lambda *args, **kwargs: guide(*args, **kwargs)[1]
