@@ -161,8 +161,9 @@ class Entropy:
 
     @staticmethod
     def get_weights(k=50, kmin=4, device='cpu'):
-        w = torch.arange(float(kmin), float(k))
-        w = w * torch.exp(-w / 20)
+        # Let weights be proportional to k so terms with different k contribute
+        # similarly
+        w = torch.arange(kmin, k, dtype=torch.float)
         weights = torch.zeros(k, device=device)
         weights[kmin:] = w / w.sum()
         return weights
