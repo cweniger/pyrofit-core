@@ -114,6 +114,7 @@ def infer_NUTS(cond_model, n_steps, warmup_steps, n_chains = 1, device = 'cpu', 
         nuts_kernel, n_steps, warmup_steps=warmup_steps,
         num_chains=n_chains).run()
 
+LOSS_SUM = []
 
 def infer_VI(cond_model, guide_conf, guidefile, n_steps, lr = 1e-3, n_write=300,
         device = 'cpu', n_particles = 1, conv_th = 0.):
@@ -141,11 +142,12 @@ def infer_VI(cond_model, guide_conf, guidefile, n_steps, lr = 1e-3, n_write=300,
     # Initialize VI model and guide
     guide = init_guide(cond_model, guide_conf, guidefile = guidefile, device = device)
 
-    optimizer = Adam({"lr": lr, "amsgrad": True})
-    #optimizer = SGD({"lr": lr})
+    optimizer = Adam({"lr": lr, "amsgrad": False, "weight_decay": 0.0})
+    #optimizer = SGD({"lr": lr, "momentum": 0.9})
 
     # For some reason, JitTrace_ELBO breaks for CPU
     loss = Trace_ELBO(num_particles = n_particles)
+#    guide = poutine.trace(guide)
     svi = SVI(cond_model, guide, optimizer, loss=loss)
 
     print()
@@ -170,8 +172,13 @@ def infer_VI(cond_model, guide_conf, guidefile, n_steps, lr = 1e-3, n_write=300,
             if i % n_write == 0:
                 pyro.get_param_store().save(guidefile)
             loss = svi.step()
+#
+#            trace = guide.get_trace()
+#            print(trace.nodes['linear/a']['value'])
+#
             losses.append(loss)
-            t.postfix = "loss=%.3f"%loss
+            minloss = min(losses)
+            t.postfix = "loss=%.3f (%.3f)"%(loss,minloss)
             t.update()
 
             if len(losses) > 100:
@@ -179,6 +186,7 @@ def infer_VI(cond_model, guide_conf, guidefile, n_steps, lr = 1e-3, n_write=300,
                 if dl < conv_th:
                     print("Convergence criterion reached: d_loss/d_step < %.3e"%conv_th)
                     break
+            #print(np.mean(losses[-500:]))
 
     print()
     print("################")
@@ -242,28 +250,62 @@ def save_posterior_predictive(model, guide, filename, N = 300):
     np.savez(filename, **mock)
     print("Saved %i sample(s) from posterior predictive distribution to %s"%(N,filename))
 
+def dictlist2listdict(L):
+    """Take list of dictonaries and turn it into dictionary of lists."""
+    if len(L) == 1: return L[0]  # Nothing to do in this case
+    O = {}
+    for key in L[0].keys():
+        values = [L[i][key] for i in range(len(L))]
+        O[key] = values
+    return O
 
-def save_lossgrad(cond_model, guide, filename):
-    # Calculate loss and gradients (implicitely done when evaluating loss_and_grads)
-    with poutine.trace(param_only=True) as param_capture:
-        loss = Trace_ELBO().loss_and_grads(cond_model, guide)
+def save_lossgrad(cond_model, guide, filename, N = 2):
+    param_dict_list = []
 
-    print()
-    print("Loss =", loss)
+    guide_ret = [None]
 
-    # Zero grad (seems to be not necessary)
-    #params = set(site["value"].unconstrained()
-    #             for site in param_capture.trace.nodes.values())
-    #pyro.infer.util.zero_grads(params_dict)
+    def wrapped_guide(*args, **kwargs):
+        guide_ret[0] = guide(*args, **kwargs)
+        return guide_ret[0]
 
-    print()
-    print("Gradients:")
-    param_dict = {site['name']: site["value"].unconstrained().grad.detach().numpy()
-                 for site in param_capture.trace.nodes.values()}
-    for name, param in param_dict.items():
-        print(name + " :", param)
+    for i in range(N):
+        # Calculate loss and gradients (implicitely done when evaluating loss_and_grads)
+        with poutine.trace(param_only=True) as param_capture:
+            loss = Trace_ELBO().loss_and_grads(cond_model, wrapped_guide)
 
-    param_dict["loss"] = loss
+        guide_samples = guide_ret[0]
+        for key, value in guide_samples.items():
+            guide_samples[key] = value.detach().numpy()
+#        for site in guide.get_trace().nodes.values():
+#            if site['type'] == 'sample':
+#                guide_samples[site['name']] = site['value'].detach().numpy()
+
+        print()
+        print("Loss =", loss)
+
+        print()
+        print("Guide samples:")
+        for key, value in guide_samples.items():
+            print(key + " :", value)
+
+        # Zero grad (seems to be not necessary)
+        #params = set(site["value"].unconstrained()
+        #             for site in param_capture.trace.nodes.values())
+        #pyro.infer.util.zero_grads(params_dict)
+
+        print()
+        print("Parameter gradients:")
+        param_dict = {site['name']: site["value"].unconstrained().grad.detach().numpy()
+                     for site in param_capture.trace.nodes.values()}
+        for name, param in param_dict.items():
+            print(name + " :", param)
+
+        param_dict["loss"] = loss
+        param_dict.update(guide_samples)
+
+        param_dict_list.append(param_dict)
+
+    param_dict = dictlist2listdict(param_dict_list)
 
     np.savez(filename, **param_dict)
     print()
@@ -429,9 +471,10 @@ def ppd(ctx, guidefile, ppdfile, n_samples):
 @cli.command()
 #@click.option("--guide", default = "Delta")
 @click.option("--guidefile", default = None)
+@click.option("--n_samples", default = 1, help = "Number of samples (default 1).")
 @click.argument("outfile")
 @click.pass_context
-def lossgrad(ctx, guidefile, outfile):
+def lossgrad(ctx, guidefile, n_samples, outfile):
     """Store model loss and gradient of guide parameters."""
     if guidefile is None: guidefile = ctx.obj['default_guidefile']
     model = ctx.obj['model']
@@ -440,7 +483,7 @@ def lossgrad(ctx, guidefile, outfile):
     guide_conf = yaml_config['guide']
     cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
     my_guide = init_guide(cond_model, guide_conf, guidefile = guidefile, device = device)
-    save_lossgrad(cond_model, my_guide, outfile)
+    save_lossgrad(cond_model, my_guide, outfile, N = n_samples)
 
 #@cli.command()
 #@click.option("--guide", default = "Delta", help = "Guide type.")
