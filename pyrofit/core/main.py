@@ -420,8 +420,8 @@ def mock(ctx, mockfile):
     model = ctx.obj['model']
     device = ctx.obj['device']
     yaml_config = ctx.obj['yaml_config']
-    #cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-    save_mock(model, filename = mockfile)
+    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
+    save_mock(cond_model, filename = mockfile)
     print("Save mock data to %s"%mockfile)
 
 @cli.command()
