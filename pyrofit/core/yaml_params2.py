@@ -19,8 +19,8 @@ FIX_ALL = False
 
 def set_fix_all(flag):
     """All parameters with specified `init` value are fixed."""
-    global FIX_ALL 
-    FIX_ALL = flag 
+    global FIX_ALL
+    FIX_ALL = flag
 
 def get_init_values():
     return INIT_VALUES.copy()
@@ -61,8 +61,9 @@ def _parse_val(key, val, device='cpu', dtype = torch.float32):
     except ValueError:
         raise ValueError("Could not parse %s"%str(val))
 
-def _entry2action(key, val, device):
+def _entry2action(key, val, module, device):
     global INIT_VALUES
+    global FIX_ALL
 
     # Parse non-dict values as fixed values
     if not isinstance(val, dict):
@@ -70,21 +71,52 @@ def _entry2action(key, val, device):
         return lambda param: val
     keys = list(val.keys())
     keys.sort()
-#    if keys == ['init']:
-#        val = _parse_val(key, val['init'], device=device)
-#        return lambda param: val
     if keys == ['sample']:
-        fn = eval(val['sample'][0])
+        try:
+            fn = eval(val['sample'][0])
+        except:
+            try:
+                fn = eval(f"module.{val['sample'][0]}")
+            except:
+                raise ValueError(f"Could not parse distribution {val['sample'][0]}")
+
         args = [_parse_val(key, x, device=device) for x in val['sample'][1:]]
-        return lambda param: pyro.sample(param, fn(*args))
+
+
+        def sampler(param):
+            val = pyro.sample(param, fn(*args))
+            # print("Sampled", param, "with val", val)
+            return val
+
+        return sampler
+        # return lambda param: pyro.sample(param, fn(*args))
     if keys == ['init', 'sample']:
-        fn = eval(val['sample'][0])
-        args = [_parse_val(key, x, device=device) for x in val['sample'][1:]]
         if "init" in val.keys():
+            # TODO: is this ever used anywhere??
             infer = {'init': _parse_val(key, val['init'], device=device)}
+            batch_shape = infer["init"].shape
         else:
             infer = None
-        return lambda param: pyro.sample(param, fn(*args), infer = infer)
+            batch_shape = torch.Size([])
+
+        try:
+            fn = eval(val['sample'][0])
+        except:
+            try:
+                fn = eval(f"module.{val['sample'][0]}")
+            except:
+                raise ValueError(f"Could not parse distribution {val['sample'][0]}")
+
+        args = [_parse_val(key, x, device=device) for x in val['sample'][1:]]
+
+        def sampler(param):
+            obs = None if not FIX_ALL else infer["init"]
+            val = pyro.sample(param, fn(*args).expand(batch_shape), infer=infer, obs=obs)
+            # print("Sampled (with 'init')", param, "with val", val)
+            return val
+
+        return sampler
+        # return lambda param: pyro.sample(param, fn(*args).expand(batch_shape), infer=infer)
     if keys == ['param']:
         arg = _parse_val(key, val['param'], device=device)
         return lambda param: pyro.param(param, arg)
@@ -93,16 +125,16 @@ def _entry2action(key, val, device):
         return lambda param: pyro.param(param, arg, constraint = eval(val['constraint']))
     raise KeyError("Incompatible parameter section entries with keys %s"%str(keys))
 
-def yaml2settings(yaml_params, device='cpu'):
+def yaml2settings(yaml_params, module, device='cpu'):
     """Import YAML dictionary and pass it as `pyro.contrib.autoname.named`
     object as first argument to the decorated function.
 
     Example YAML entry to be parsed as `config`
     -------------------------------------------
     u: 1.                               # fixed tensor (requires_grad = False)
-    w:                                  
+    w:
       init: 1.                          # fixed tensor (requires_grad = False)
-    w:                                  
+    w:
       param: 1.                          # free tensor, without prior (requires_grad = True)
     x:
       sample: [dist.Normal, 0., 1.]      # sample from N(0, 1)
@@ -139,16 +171,16 @@ def yaml2settings(yaml_params, device='cpu'):
         settings[key] = _parse_val(key, val, device)
     return settings
 
-def yaml2actions(name, yaml_params, device='cpu'):
+def yaml2actions(name, yaml_params, module, device='cpu'):
     """Import YAML dictionary and pass it as `pyro.contrib.autoname.named`
     object as first argument to the decorated function.
 
     Example YAML entry to be parsed as `config`
     -------------------------------------------
     u: 1.                               # fixed tensor (requires_grad = False)
-    w:                                  
+    w:
       init: 1.                          # fixed tensor (requires_grad = False)
-    w:                                  
+    w:
       param: 1.                          # free tensor, without prior (requires_grad = True)
     x:
       sample: [dist.Normal, 0., 1.]      # sample from N(0, 1)
@@ -182,7 +214,7 @@ def yaml2actions(name, yaml_params, device='cpu'):
     # including reading *.npy files from disk.  Needs speed-up.
     actions = {}
     for key, val in yaml_params.items():
-        action = _entry2action(key, val, device)
+        action = _entry2action(key, val, module, device)
         actions[key] = lambda action = action, par_name = name+"/"+key: action(par_name)
 
     return actions

@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch.distributions.transformed_distribution import (
     TransformedDistribution)
-from torch.distributions import Normal
+from torch.distributions import Normal, TransformedDistribution, Transform
 from torch.distributions.transforms import PowerTransform, ExpTransform
 import warnings
 
@@ -72,6 +72,10 @@ class InverseTransformSampling(dist.TorchDistribution):
         self.interp1d = Interp1d()
 
     @property
+    def arg_constraints(self):
+        return {}
+
+    @property
     def support(self):
         return self._support
 
@@ -91,8 +95,14 @@ class InverseTransformSampling(dist.TorchDistribution):
         #mask = torch.cat((torch.ByteTensor([0]), (cdf[1:]-cdf[:-1]) > th), 0)
         #return cdf[mask], grid[mask], norm
 
+    def cdf(self, y):
+        return self.interp1d(self.y, self.x, y).reshape(y.shape)
+
+    def icdf(self, x):
+        return self.ppf(x).reshape(x.shape)
+
     def ppf(self, x):
-        return self.interp1d(self.x, self.y, x)
+        return self.interp1d(self.x, self.y, x).reshape(x.shape)
 
     def rsample(self, sample_shape=torch.Size()):
         P = torch.Size(sample_shape).numel()
@@ -105,7 +115,7 @@ class InverseTransformSampling(dist.TorchDistribution):
 
     def log_prob(self, *args, **kwargs):
         return self._log_prob(*args, **kwargs) - self.log_scale
-    
+
     def expand(self, batch_shape):
         if len(self._prob_shape) > 0:
             assert batch_shape[-len(self._prob_shape):] == self._prob_shape
@@ -115,14 +125,45 @@ class InverseTransformSampling(dist.TorchDistribution):
         return type(self)(self._log_prob, self._grid, expand_shape = expand_shape)
 
 
+class CDFTransform(Transform):
+    """
+    Makes a cdf Transform from a distribution.
+    """
+
+    codomain = constraints.unit_interval
+    bijective = True
+    sign = +1
+
+    def __init__(self, base_dist):
+        self.base_dist = base_dist
+        self.domain = base_dist.support
+        super().__init__()
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, CDFTransform) and
+            other.base_dist == self.base_dist
+        )
+
+    def _call(self, x):
+        return self.base_dist.cdf(x)
+
+    def _inverse(self, y):
+        return self.base_dist.icdf(y)
+
+    def log_abs_det_jacobian(self, x, y):
+        return self.base_dist.log_prob(x)
+
+
 class Entropy:
     def __init__(self, k=50, kmin=4, device='cpu'):
         self.weights = self.get_weights(k, kmin, device)
 
     @staticmethod
     def get_weights(k=50, kmin=4, device='cpu'):
-        w = torch.arange(float(kmin), float(k))
-        w = w * torch.exp(-w / 20)
+        # Let weights be proportional to k so terms with different k contribute
+        # similarly
+        w = torch.arange(kmin, k, dtype=torch.float)
         weights = torch.zeros(k, device=device)
         weights[kmin:] = w / w.sum()
         return weights
