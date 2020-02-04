@@ -2,7 +2,7 @@ pyrofit:
   module: examples.wdm
   model: entropy
 conditioning:
-  entropy/flux: "$NPZ mock.npz"
+  entropy/flux: "$NPZ mock_wdm.npz"
 guide:
   type: SuperGuide
   groups:
@@ -14,11 +14,11 @@ guide:
       match: "entropy/x_f"
 entropy[Entropy]:  # Function name
   variables:
-    a: 0.05
+    a: 0.02
     #param: 0.5
     #sample: [dist.Normal, 0.5, .50]
     #  init: 0.5
-    b: 1.00
-    #param: 1.
+    b: #1.00
+      param: 1.
             #      sample: [dist.Normal, 1., 0.50]
             #      init: 1.

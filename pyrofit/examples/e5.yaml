@@ -1,8 +1,8 @@
 pyrofit:
-  module: examples.entropy
+  module: examples.e5
   model: entropy
 conditioning:
-  entropy/flux: "$NPZ mock.npz"
+  entropy/flux: "$NPZ mock_e5.npz"
 guide:
   type: SuperGuide
   groups:
@@ -14,8 +14,8 @@ guide:
       match: "entropy/x_f"
 entropy[Entropy]:  # Function name
   variables:
-    a: #0.5
-      param: 1.00
+    a: 10.0
+    #param: 1.00
     #sample: [dist.Normal, 0.5, .50]
     #  init: 0.5
     b: # 0.5

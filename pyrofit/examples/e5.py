@@ -30,7 +30,7 @@ class Entropy:
         flux_normal = pyro.sample("x_f", dist.Normal(0., 1.).expand_by((N,)))
 
         # Calculate physical flux (arbitrary rescaling function)
-        flux_phys = 10**(flux_normal*a - 1.5)
+        flux_phys = flux_normal*a
 
         # Construct vectors for distance calculation
         x1 = torch.stack([x_pos*0, flux_normal], dim = 1)
@@ -66,9 +66,10 @@ class Entropy:
         # Construct physical spectrum
         x_grid = torch.linspace(-4, 4, Nbins)
         flux = (flux_phys.unsqueeze(1)*torch.exp(-(x_grid.unsqueeze(0) -
-            x_pos.unsqueeze(1))**2/0.1**2)).sum(0)+b
-        noise = torch.ones(Nbins)*0.1
+            x_pos.unsqueeze(1))**2/0.1**2)).sum(0)
+        noise = torch.ones(Nbins)*0.5
         noise[500:] *= 100.
+        #print(flux.min())
         #print(flux.max())
         pyro.sample("flux", dist.Normal(flux, noise))
         observe("obs_flux", flux)

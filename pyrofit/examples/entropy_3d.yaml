@@ -1,14 +1,14 @@
 pyrofit:
-  module: examples.e4
+  module: examples.entropy_3d
   model: entropy
 conditioning:
-  entropy/obs: "$NPZ mock_e4.npz"
+  entropy/obs: "$NPZ mock_3d.npz"
 guide:
   type: Delta
   match: .*
 entropy[Entropy]:  # Function name
   variables:
-    a: 1.1
+    a: 1.0
     #param: 1.0
     #sample: [dist.Normal, 0.5, .50]
     #  init: 0.5

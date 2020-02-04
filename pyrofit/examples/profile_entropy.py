@@ -21,11 +21,11 @@ def test():
     x = pyro.sample("x", dist.Normal(0., 1.).expand_by((N,)))
     x = x.unsqueeze(1)
 
-    kmin, kmax = 10, 300
+    kmin, kmax = 2, 10
     k = torch.linspace(kmin, kmax-1, kmax-kmin)
-    w = torch.exp(-(k-25)**2/2./15.**2)
-    w[:] = 1.
-    w[:90] = 0.
+    w = k
+    #w = k*torch.exp(-(k-20)**2/2./5.**2)
+    #w[:] = 1.
     w = w/w.sum()
 
     out = []

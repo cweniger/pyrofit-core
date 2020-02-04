@@ -68,7 +68,7 @@ class Entropy:
         # !!! sigma becomes large if the physical flux drops below the value of a
         sigma = 0.1 + 0.4*torch.sigmoid(-torch.log(flux_phys/a)*4)
 
-        flux = (flux_phys.unsqueeze(1)*torch.exp(-(x_grid.unsqueeze(0) -
+        flux = (0.1*flux_phys.unsqueeze(1)/sigma.unsqueeze(1)*torch.exp(-(x_grid.unsqueeze(0) -
             x_pos.unsqueeze(1))**2/sigma.unsqueeze(1)**2)).sum(0)+b
         noise = torch.ones(Nbins)*0.1
         #noise[500:] *= 6

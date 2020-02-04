@@ -18,7 +18,7 @@ class Entropy:
         return D_ij.argKmin(K, dim=1)  # (M, K) Minimum indices
 
     def __call__(self, a:Yaml, b:Yaml):
-        N = 1000  # Number of points
+        N = 200  # Number of points
         k = 50  # NNs
         kmin = 10
 
@@ -54,6 +54,7 @@ class Entropy:
         obs = pyro.sample("obs", dist.Normal(mu, noise))
         res = (obs - mu)
         observe("mu", mu)
+        print(a)
 
         #ind_kNN = self._kNN(res, res, k)  # get sorted indices of 50 NNs
 

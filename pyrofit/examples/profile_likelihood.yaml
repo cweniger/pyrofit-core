@@ -1,0 +1,18 @@
+pyrofit:
+  module: examples.profile_likelihood
+  model: linear  # Function name
+conditioning:
+  linear/y: [5., 4., 3., 2., 1.]
+guide:
+  type: ProfileLikelihood
+  match_master: linear/a
+  match_slave: linear/b
+  mode: linear
+linear:  # Function name
+  x: [1., 2., 3., 4., 5.]
+  a:
+    sample: [dist.Uniform, -10.00, 10.00]
+    init: 0.
+  b:
+    sample: [dist.Uniform, -10., 10.00]
+    init: 0.

@@ -120,10 +120,7 @@ rule:
   input:
     yaml = "{root}.yaml",
   run:
-    shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 3e-1 --n_steps 200")
-    shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 1e-1 --n_steps 200")
-    shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 3e-2 --n_steps 200")
-    #shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 1e-2 --n_steps 200")
+    shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 1e-1 --n_steps 3000 --conv_th -1000")
     #shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 3e-3 --n_steps 200")
     #shell("pyrofit {input.yaml} fit --conv_th -1000 --lr 1e-3 --n_steps 200")
 
