@@ -9,7 +9,7 @@ from pyro.contrib.easyguide import EasyGuide
 import pyro.distributions as dist
 from torch.distributions import constraints
 from pyro.distributions.util import eye_like
-from .utils import load_param_store
+from .utils import load_param_store, tensor2device
 
 class PyrofitGuide(EasyGuide):
     def __init__(self, model):
@@ -98,6 +98,41 @@ class DeltaGuide(PyrofitGuide):
                 dist.Delta(z_loc).to_event(1))
         return guide_z, model_zs
 
+class HammerGuide(PyrofitGuide):
+    """Profile likelihood guide."""
+    def __init__(self, model, guide_conf, prefix = None):
+        super(HammerGuide, self).__init__(model)
+        self.mygroup0 = None
+        self.mygroup1 = None
+        self.guide_conf = guide_conf
+        self.prefix = "" if prefix is None else prefix+"/"
+
+    def guide(self):
+        if self.mygroup0 is None:
+            self.mygroup0, self.z0_init_loc = self._get_group(self.guide_conf['match_master'])
+            self.mygroup1, self.z1_init_loc = self._get_group(self.guide_conf['match_slave'])
+            self.shape0 = self.z0_init_loc.shape
+            self.shape1 = self.z1_init_loc.shape
+            self.device = tensor2device(self.z0_init_loc)
+
+        # z0 parameters (fixed-width diagonal normal estimation)
+        z0_loc = pyro.param(self.prefix+"guide_z0_loc", self.z0_init_loc)
+        print(z0_loc)
+        z0_scale = torch.tensor(self.guide_conf['scales'], device = self.device)
+        guide_z0, model_zs0 = self.mygroup0.sample(self.prefix+'guide_z0',
+                dist.Normal(z0_loc, z0_scale).to_event(1))
+
+        # z1 parameters (MAP estimation)
+        z1_loc = pyro.param(self.prefix+"guide_z1_loc", self.z1_init_loc)
+        guide_z1, model_zs1 = self.mygroup1.sample(self.prefix+'guide_z1', dist.Delta(z1_loc).to_event(1))
+
+        # Combine model predictions
+        model_zs = model_zs0
+        model_zs.update(model_zs1)
+
+        return None, model_zs
+
+
 class ProfileLikelihood(PyrofitGuide):
     """Profile likelihood guide."""
     def __init__(self, model, guide_conf, prefix = None):
@@ -131,24 +166,30 @@ class ProfileLikelihood(PyrofitGuide):
         return z1
 
     def _grid(self, z0):
-        N = 10
-        sigma = 0.5
-        pos0 = torch.tensor([1.0, -2.0])
-        pos = pyro.param(self.prefix+"guide_pos", torch.randn((N, self.shape0[0]))+pos0)
-        pos = pos.detach()
-        val = pyro.param(self.prefix+"guide_val", 1*torch.randn((N, self.shape1[0])))
-        b0 = pyro.param(self.prefix+"guide_b0", torch.randn((self.shape1[0],)))
-        w = torch.exp(-((z0-pos)**2).sum(1)/2/sigma**2)
-        b = (w.unsqueeze(1)*val).sum(0) + 0*b0
-        return b
+        device = tensor2device(z0)
+        ranges = torch.tensor(self.guide_conf['ranges'], device = device)  # list of (min, max) pairs for components of z0
+
+        v = [pyro.param(self.prefix+"guide_v0", torch.randn(self.shape1[0], device = device))]
+        imax = 2
+        for i in range(1, imax):
+            tmp = pyro.param(self.prefix+"guide_v%i"%i, torch.zeros((self.shape1[0], 2**i, 2**i), device = device))
+            v.append(tmp)
+
+        grid = (2*z0 - (ranges[:,1] + ranges[:,0]))/(ranges[:,1] - ranges[:,0])  # grid point in range [-1, 1]
+
+        out = v[0]
+        for i in range(1, imax):
+            out = out.detach()
+            out = out + torch.nn.functional.grid_sample(v[i].unsqueeze(0), grid.unsqueeze(0).unsqueeze(0).unsqueeze(0),
+              align_corners = True, padding_mode = 'border', mode = 'nearest')[0,:,0,0]
+        return out
 
     def _linear(self, z0):
-        b = pyro.param(self.prefix+"guide_b", 0.1*torch.randn(self.shape1))
-        #b0 = pyro.param(self.prefix+"guide_b0", 0.1*torch.randn(self.shape0))
-        A = pyro.param(self.prefix+"guide_A", 0.1*torch.randn(self.shape1 + self.shape0))
-        z0[1] = z0[1] + 2
-        z0[0] = z0[0] - 1.0
-        z1 = b + (A*(z0)).sum(1)
+        device = tensor2device(z0)
+        b = pyro.param(self.prefix+"guide_b", 1.0*torch.randn(self.shape1, device = device))
+        A = pyro.param(self.prefix+"guide_A", torch.zeros(self.shape1 + self.shape0, device = device))
+        z0 = z0 - 1.025
+        z1 = b + 0*(A*z0).sum(1)
         return z1
 
     def guide(self):
@@ -256,6 +297,7 @@ GUIDE_MAP = {
         "MultivariateNormal": MultivariateNormalGuide,
         #"Custom": get_custom_guide,
         "ProfileLikelihood": ProfileLikelihood,
+        "HammerGuide": HammerGuide,
         "SuperGuide": SuperGuide
         }
 

@@ -196,7 +196,7 @@ def infer_VI(cond_model, guide_conf, guidefile, n_steps, lr = 1e-3, n_write=300,
 
             if len(losses) > 100:
                 dl = (np.mean(losses[-100:-80]) - np.mean(losses[-20:]))/80
-                if conv_th > 0 and dl < conv_th:
+                if conv_th > 0. and dl < conv_th:
                     print("Convergence criterion reached: d_loss/d_step < %.3e"%conv_th)
                     break
             #print(np.mean(losses[-500:]))
@@ -308,8 +308,11 @@ def save_lossgrad(cond_model, guide, filename, N = 2):
 
         print()
         print("Parameter gradients:")
-        param_dict = {site['name']: site["value"].unconstrained().grad.detach().numpy()
-                     for site in param_capture.trace.nodes.values()}
+        param_dict = {site['name']: 
+                     (None if site['value'].unconstrained().grad is None 
+                           else site["value"].unconstrained().grad.detach().numpy())
+                     for site in param_capture.trace.nodes.values()
+                     }
         for name, param in param_dict.items():
             print(name + " :", param)
 
@@ -417,7 +420,7 @@ def cli(ctx, device, yamlfile):
 @click.option("--lr", default = 1e-3, help = "Learning rate (default 1e-3).")
 @click.option("--n_write", default = 200, help = "Steps after which guide is written (default 200).")
 @click.option("--n_particles", default = 1, help = "Particles used in optimization step (default 1).")
-@click.option("--conv_th", default = 1e-3, help = "Convergence threshold (default 1e-3).")
+@click.option("--conv_th", default = 0., help = "Convergence threshold (default 0).")
 #@click.option("--quantfile", default = None)
 @click.pass_context
 def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th):

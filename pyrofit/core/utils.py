@@ -667,3 +667,9 @@ def load_param_store(paramfile, device = 'cpu'):
     except FileNotFoundError:
         print("Could not open %s. Starting with fresh guide."%paramfile)
 
+def tensor2device(t):
+    if t.is_cuda:
+        return t.get_device()
+    else:
+        return 'cpu'
+
