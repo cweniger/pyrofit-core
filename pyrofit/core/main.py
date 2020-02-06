@@ -308,11 +308,12 @@ def save_lossgrad(cond_model, guide, filename, N = 2):
 
         print()
         print("Parameter gradients:")
-        param_dict = {site['name']: 
-                     (None if site['value'].unconstrained().grad is None 
-                           else site["value"].unconstrained().grad.detach().numpy())
-                     for site in param_capture.trace.nodes.values()
-                     }
+        param_dict = {}
+        for site in param_capture.trace.nodes.values():
+            grad = site["value"].unconstrained().grad
+            if grad is not None:
+                param_dict[site["name"]] = grad.detach().numpy()
+
         for name, param in param_dict.items():
             print(name + " :", param)
 
