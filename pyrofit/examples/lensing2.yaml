@@ -1,0 +1,26 @@
+pyrofit:
+  module: examples.lensing2
+  model: entropy
+conditioning:
+  entropy/obs: "$NPZ mock_lensing2.npz"
+guide:
+#        type: Delta
+#        match: .*
+#  type: ProfileLikelihood
+#  match_master: "entropy/a"
+#  match_slave: "^((?!entropy/a).)*$"
+#  mode: linear
+#  layers: [10, 10]
+#  ranges: [[0.7, 2.0]]
+  type: HammerGuide
+  match_master: "entropy/[a]$"
+  match_slave: "^((?!entropy/[a]).)*$"
+  scales: [0.4]
+entropy[Entropy]:  # Function name
+  variables:
+    a:  #1.0
+      #param: 0.5
+      sample: [dist.Uniform, 0.20, 1.20]
+    b:  1.0
+  #    sample: [dist.Uniform, 0.20, 1.20]
+      #param: 0.5
