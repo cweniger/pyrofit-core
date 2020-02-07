@@ -95,8 +95,7 @@ class OnehotConv2d:
         assert len(kernel.shape) == 3, "shape must be (C, kH, kW)."
         assert (kernel.shape[1] == kernel.shape[2]), "Kernel must be symmetric"
         if flip_kernel:
-            kernel = torch.tensor(np.array(kernel.to('cpu'))[..., ::-1,
-                ::-1].copy()).to(device)
+            kernel = kernel.flip(-2, -1)
         self.odd = (kernel[0].shape[0] % 2 == 1)
         self.kernel = kernel
 
@@ -461,7 +460,7 @@ class ConvKernel2dFFT:
     def __init__(self, kernel, img_shape, device = 'cpu'):
         """Note: Kernel ordering same as conv2d."""
         self.device = device
-        kernel = torch.tensor(np.array(kernel.to('cpu'))[...,::-1,::-1].copy()).to(device)  # Flip kernel, in order to get same behaviour as conv2d
+        kernel = kernel.flip(-2, -1)  # flip kernel, in order to get same behaviour as conv2d
         self._init_fft(kernel, img_shape)
         self.shape_k = kernel.shape
 
