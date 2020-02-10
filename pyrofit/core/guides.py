@@ -117,7 +117,7 @@ class HammerGuide(PyrofitGuide):
 
         # z0 parameters (fixed-width diagonal normal estimation)
         z0_loc = pyro.param(self.prefix+"guide_z0_loc", self.z0_init_loc)
-        print(z0_loc)
+        # print(z0_loc)
         z0_scale = torch.tensor(self.guide_conf['scales'], device = self.device)
         guide_z0, model_zs0 = self.mygroup0.sample(self.prefix+'guide_z0',
                 dist.Normal(z0_loc, z0_scale).to_event(1))
