@@ -102,11 +102,21 @@ class InverseTransformSampling(dist.TorchDistribution):
         return self.ppf(x).reshape(x.shape)
 
     def ppf(self, x):
-        return self.interp1d(self.x, self.y, x).reshape(x.shape)
+        permute = self._prob_shape != x.shape[:len(self._prob_shape)]
+        _x = (x.permute(*range(-len(self._prob_shape), 0),
+                        *range(len(x.shape) - len(self._prob_shape)))
+              if permute else x)
+
+        res = self.interp1d(self.x, self.y,
+                            _x.reshape((self.D, -1))
+                            ).reshape(_x.shape)
+        return (res.permute(*range(len(self._prob_shape), len(x.shape)),
+                            *range(len(self._prob_shape)))
+                if permute else res).reshape(x.shape)
 
     def rsample(self, sample_shape=torch.Size()):
         P = torch.Size(sample_shape).numel()
-        xnew = torch.rand(self.D, P*self.R_D, device = self.device)
+        xnew = torch.rand(self.D, P*self.R_D, device=self.device)
         out = self.ppf(xnew)  # (D, P*R/D)
         return out.permute(1, 0).reshape(self.shape(sample_shape))
 
@@ -116,13 +126,34 @@ class InverseTransformSampling(dist.TorchDistribution):
     def log_prob(self, *args, **kwargs):
         return self._log_prob(*args, **kwargs) - self.log_scale
 
-    def expand(self, batch_shape):
+    def expand(self, batch_shape, **kwargs):
         if len(self._prob_shape) > 0:
             assert batch_shape[-len(self._prob_shape):] == self._prob_shape
             expand_shape = batch_shape[:-len(self._prob_shape)]
         else:
             expand_shape = batch_shape
-        return type(self)(self._log_prob, self._grid, expand_shape = expand_shape)
+        return type(self)(self._log_prob, grid=self._grid, expand_shape=expand_shape)
+
+
+class GaussianSampler(InverseTransformSampling):
+    def __init__(self, log_prob,
+                 rng: tuple, grid_size=201, logspaced=True, grid=None,
+                 expand_shape=torch.Size([]), device='cpu'):
+        grid = (torch.logspace if logspaced else torch.linspace)(*rng, grid_size, device=device) if grid is None else grid
+        super().__init__(log_prob, grid, expand_shape=expand_shape)
+        self.standard_normal = dist.Normal(
+            torch.tensor(0., device=self.device),
+            torch.tensor(1., device=self.device)
+        ).expand(self.batch_shape, )
+
+    def draw(self, name: str, sample_shape: torch.Size):
+        return pyro.sample(name, self.standard_normal.expand_by(sample_shape))
+
+    def transform_sample(self, sample):
+        return self.ppf(self.standard_normal.cdf(sample)).reshape(sample.shape)
+
+    def sample(self, name: str, sample_shape: torch.Size):
+        return self.transform_sample(self.draw(name, sample_shape))
 
 
 class CDFTransform(Transform):
@@ -156,14 +187,13 @@ class CDFTransform(Transform):
 
 
 class Entropy:
-    def __init__(self, k=50, kmin=4, device='cpu'):
-        self.weights = self.get_weights(k, kmin, device)
+    def __init__(self, k=50, kmin=4, scale=20, device='cpu'):
+        self.weights = self.get_weights(k, kmin, scale, device=device)
 
     @staticmethod
-    def get_weights(k=50, kmin=4, device='cpu'):
-        # Let weights be proportional to k so terms with different k contribute
-        # similarly
-        w = torch.arange(kmin, k, dtype=torch.float)
+    def get_weights(k=50, kmin=4, scale=20, device='cpu'):
+        w = torch.arange(float(kmin), float(k))
+        w = w * torch.exp(-w / scale)
         weights = torch.zeros(k, device=device)
         weights[kmin:] = w / w.sum()
         return weights
@@ -178,33 +208,21 @@ class Entropy:
 
     @staticmethod
     def _kNN_d2(x, y, K):
-        i = LazyTensor.sqdist(Vi(x), Vj(y)).argKmin(K, dim=1)
-        return (x[:, None, :] - y[i]).pow(2.).sum(-1)
+        i = LazyTensor.sqdist(
+            LazyTensor(x.unsqueeze(-2)),
+            LazyTensor(y.unsqueeze(-3))
+        ).argKmin(K, dim=len(x.shape)-1)
+        return (x.unsqueeze(-2)
+                - y.__getitem__([torch.arange(i.shape[j]).reshape(tuple(sh))
+                                 for j, sh in enumerate(
+                                     torch.full([len(i.shape)-2, len(i.shape)], 1, dtype=int).fill_diagonal_(-1))]
+                                + [i])
+                ).pow(2.).sum(-1)
 
     def entropy_loss(self, x, d_min=1e-3):
         ndim = x.shape[-1]
-        d2 = Entropy._kNN_d2(x, x, len(self.weights)+1)[:, 1:]  # [0] was the point itself
-        return - ndim/2 * (self.weights * torch.log(d2 + d_min**2)).sum()
-
-
-class GaussianSampler:
-    def __init__(self, log_prob: callable, rng: tuple, grid_size=200, logspaced=True, device="cpu"):
-        self.device = device
-        self.log_prob = log_prob
-        self.sampler = InverseTransformSampling(
-            log_prob=self.log_prob,
-            grid=(torch.logspace if logspaced else torch.linspace)(*rng, grid_size, device=self.device))
-        self.standard_normal = dist.Normal(torch.tensor(0., device=device),
-                                           torch.tensor(1., device=device))
-
-    def draw(self, name: str, shape: tuple):
-        return pyro.sample(name, self.standard_normal.expand_by(tuple(shape)))
-
-    def transform_sample(self, sample):
-        return self.sampler.ppf(self.standard_normal.cdf(sample)).reshape(sample.shape)
-
-    def sample(self, name: str, shape: tuple):
-        return self.transform_sample(self.draw(name, shape))
+        d2 = Entropy._kNN_d2(x, x, len(self.weights)+1)[..., :, 1:]  # [0] was the point itself
+        return - ndim/2 * (self.weights * torch.log(d2 + d_min**2)).sum((-2, -1))
 
 
 def test1():

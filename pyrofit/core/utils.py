@@ -35,7 +35,10 @@ def onehot3d(x, weights = None, shape = torch.Size()):
         weights = torch.ones(x.shape[0], device = device)
     N = torch.tensor(shape).to(device)
     M = torch.zeros(shape, device = device)
-    x = torch.where(x<torch.zeros(1, device = device), torch.zeros(1, device = device), torch.where(x >= N.float()-1, N.float()-1.001, x))
+    x = torch.where(x<torch.zeros(1, device = device),
+                    torch.zeros(1, device = device),
+                    torch.where(x >= N.float()-1,
+                                N.float()-1.001, x))
     i = x.long()  # Obtain index tensor
     w = x-i.float()  # Obtain linear weights
     ifl = i[:,0]*N[2]*N[1]+i[:,1]*N[2]+i[:,2]
@@ -321,6 +324,10 @@ def plot_cov_ellipse(cov, pos, nstd=2, ax=None, **kwargs):
 
 def acosh(x):
     return torch.log(x + torch.sqrt(x**2 - 1.))
+
+
+def atanh(x):
+    return 0.5 * (torch.log(1. + x) - torch.log(1. - x))
 
 
 def interp1d(xmin, xmax, n, log_x=False, log_y=False, device=None):
@@ -650,10 +657,8 @@ def get_components(yaml_entries, type_mapping, device='cpu'):
         instances.append(instance)
     return instances
 
-def observe(name, value):
-    # FIXME: Get device information from value
-    device = 'cpu'
-    pyro.sample(name, dist.Delta(value, log_density = torch.tensor(0., device = device)), obs = value)
+def observe(name, value, log_prob=None):
+    pyro.sample(name, dist.Delta(value, log_density=torch.zeros_like(value) if log_prob is None else log_prob), obs=value)
 
 
 def load_param_store(paramfile, device = 'cpu'):
