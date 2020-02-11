@@ -159,6 +159,7 @@ def infer_VI(
     device="cpu",
     n_particles=1,
     conv_th=0.0,
+    verbose=True
 ):
     """Runs MAP parameter inference.
 
@@ -192,18 +193,19 @@ def infer_VI(
     #    guide = poutine.trace(guide)
     svi = SVI(cond_model, guide, optimizer, loss=loss)
 
-    print()
-    print("##################")
-    print("# Initial values #")
-    print("##################")
-    print("Parameter store:")
-    for name, value in pyro.get_param_store().items():
-        print(name + ": " + str(value))
-    print()
-    print("Guide:")
-    for name, value in guide().items():
-        print(name + ": " + str(value))
-    print()
+    if verbose:
+        print()
+        print("##################")
+        print("# Initial values #")
+        print("##################")
+        print("Parameter store:")
+        for name, value in pyro.get_param_store().items():
+            print(name + ": " + str(value))
+        print()
+        print("Guide:")
+        for name, value in guide().items():
+            print(name + ": " + str(value))
+        print()
 
     print("################################")
     print("# Maximizing ELBO. Hang tight. #")
@@ -229,18 +231,19 @@ def infer_VI(
                     break
             # print(np.mean(losses[-500:]))
 
-    print()
-    print("################")
-    print("# Final values #")
-    print("################")
-    print("Parameter store:")
-    for name, value in pyro.get_param_store().items():
-        print(name + ": " + str(value))
-    print()
-    print("Guide:")
-    for name, value in guide().items():
-        print(name + ": " + str(value))
-    print()
+    if verbose:
+        print()
+        print("################")
+        print("# Final values #")
+        print("################")
+        print("Parameter store:")
+        for name, value in pyro.get_param_store().items():
+            print(name + ": " + str(value))
+        print()
+        print("Guide:")
+        for name, value in guide().items():
+            print(name + ": " + str(value))
+        print()
 
     save_guide(guidefile)
 
@@ -467,9 +470,10 @@ def cli(ctx, device, yamlfile):
     "--n_particles", default=1, help="Particles used in optimization step (default 1)."
 )
 @click.option("--conv_th", default=0.0, help="Convergence threshold (default 0).")
+@click.option("--verbose", default=False, help="Print more messages (default False)")
 # @click.option("--quantfile", default = None)
 @click.pass_context
-def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th):
+def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th, verbose):
     """Parameter inference with variational methods."""
     if guidefile is None:
         guidefile = ctx.obj["default_guidefile"]
@@ -490,6 +494,7 @@ def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th):
         n_write=n_write,
         n_particles=n_particles,
         conv_th=conv_th,
+        verbose=verbose
     )
 
 
