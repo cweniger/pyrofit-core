@@ -101,17 +101,35 @@ class InverseTransformSampling(dist.TorchDistribution):
     def icdf(self, x):
         return self.ppf(x).reshape(x.shape)
 
-    def ppf(self, x):
+    def ppf(self, x, right_sample_dims_count=0):
+        """
+
+        Parameters
+        ----------
+        x: torch.tensor
+            the shape should either be (self._prob_shape..., ...) or
+            (..., self._prob_shape..., sample dims...), where there are
+            right_sample_dims_count sample dimensions to the right of
+            self._prob_shape.
+        right_sample_dims_count
+
+        Returns
+        -------
+            The ppf at the given input, using the correctly broadcasted pdfs.
+        """
+
         permute = self._prob_shape != x.shape[:len(self._prob_shape)]
-        _x = (x.permute(*range(-len(self._prob_shape), 0),
-                        *range(len(x.shape) - len(self._prob_shape)))
+        _x = (x.permute(*range(-len(self._prob_shape), -right_sample_dims_count),
+                        *range(len(x.shape) - right_sample_dims_count - len(self._prob_shape)),
+                        *range(-right_sample_dims_count, 0))
               if permute else x)
 
         res = self.interp1d(self.x, self.y,
                             _x.reshape((self.D, -1))
                             ).reshape(_x.shape)
-        return (res.permute(*range(len(self._prob_shape), len(x.shape)),
-                            *range(len(self._prob_shape)))
+        return (res.permute(*range(len(self._prob_shape), len(x.shape) - right_sample_dims_count),
+                            *range(len(self._prob_shape)),
+                            *range(-right_sample_dims_count, 0))
                 if permute else res).reshape(x.shape)
 
     def rsample(self, sample_shape=torch.Size()):
@@ -144,7 +162,7 @@ class GaussianSampler(InverseTransformSampling):
         self.standard_normal = dist.Normal(
             torch.tensor(0., device=self.device),
             torch.tensor(1., device=self.device)
-        ).expand(self.batch_shape, )
+        ).expand(self.batch_shape)
 
     def draw(self, name: str, sample_shape: torch.Size):
         return pyro.sample(name, self.standard_normal.expand_by(sample_shape))

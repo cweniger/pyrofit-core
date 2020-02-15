@@ -10,6 +10,16 @@ from torch.distributions.transforms import ExpTransform
 import pyro
 from pyro import distributions as dist
 
+
+def moveaxis(tensor, src, dst):
+    l = len(tensor.shape)
+    src, dst = src%l, dst%l
+    dims = list(range(l))
+    dims.remove(src)
+    dims.insert(dst, src)
+    return tensor.permute(dims)
+
+
 def onehot3d(x, weights = None, shape = torch.Size()):
     r"""Returns hot 3-dim tensor.
     
