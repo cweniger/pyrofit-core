@@ -11,15 +11,6 @@ import pyro
 from pyro import distributions as dist
 
 
-def moveaxis(tensor, src, dst):
-    l = len(tensor.shape)
-    src, dst = src%l, dst%l
-    dims = list(range(l))
-    dims.remove(src)
-    dims.insert(dst, src)
-    return tensor.permute(dims)
-
-
 def onehot3d(x, weights = None, shape = torch.Size()):
     r"""Returns hot 3-dim tensor.
     
@@ -686,4 +677,92 @@ def tensor2device(t):
         return t.get_device()
     else:
         return 'cpu'
+
+
+# dev_kk utilities
+# ----------------
+import itertools
+
+
+def moveaxis(tensor, src, dst):
+    l = len(tensor.shape)
+    src, dst = src%l, dst%l
+    dims = list(range(l))
+    dims.remove(src)
+    dims.insert(dst, src)
+    return tensor.permute(dims)
+
+
+def num_to_tensor(*args, device='cpu'):
+    return [a.to(device) if torch.is_tensor(a) else torch.tensor(a, device=device) for a in args]
+
+
+def onehotnd(p: torch.tensor, ranges: torch.Size):
+    ndim = p.shape[-1]
+    onehot = torch.zeros(p.shape[:-2] + ranges, device=p.device)
+
+    onehot_flat = onehot.reshape((-1,) + onehot.shape[-ndim:])
+    p_flat = p.reshape((-1,) + p.shape[-2:])
+    index = p_flat.long()
+
+    offsets = torch.tensor(list(itertools.product(*([[0, 1]] * ndim))),
+                           device=p.device)
+
+    for offset in offsets:
+        i = index + offset
+        onehot_flat.index_put_(((torch.arange(onehot_flat.shape[0], device=p.device)[:, None],)
+                                + tuple(i.permute(-1, 0, 1))),
+                               (1. - (p_flat - i).abs()).prod(-1),
+                               accumulate=True)
+
+    return onehot
+
+
+class ConvNDFFT:
+    def __init__(self, kernel: torch.tensor, ndim: int):
+        self.ndim = ndim
+        self.kernel = kernel.roll((torch.tensor(kernel.shape[-ndim:]) // 2).tolist(),
+                                  list(range(-ndim, 0)))
+        self.kernel_fft = torch.rfft(self.kernel, self.ndim, onesided=False)
+
+    def __call__(self, signal, sumdims=None):
+        torch.cuda.empty_cache()
+        signal_fft = torch.rfft(signal, self.ndim, onesided=False)
+        res = torch.empty_like(torch.broadcast_tensors(signal_fft, self.kernel_fft)[0])
+        res[..., 0] = (signal_fft[..., 0] * self.kernel_fft[..., 0]
+                       - signal_fft[..., 1] * self.kernel_fft[..., 1])
+        res[..., 1] = (signal_fft[..., 0] * self.kernel_fft[..., 1]
+                       + signal_fft[..., 1] * self.kernel_fft[..., 0])
+        res = torch.irfft(res, self.ndim, onesided=False)
+
+        return res if sumdims is None else res.sum(sumdims)
+
+
+class TorchInterpNd:
+    """Curently only works in 2D and 3D because of limitations in torch's grid_sample"""
+    def __init__(self, data, *ranges):
+        self.ranges = torch.tensor(ranges, dtype=torch.get_default_dtype(), device=data.device)
+        self.extents = self.ranges[:, 1] - self.ranges[:, 0]
+        self.ndim = len(ranges)
+
+        self.data = data.unsqueeze(0) if data.ndim == self.ndim else data
+        assert self.data.ndim == self.ndim + 1
+        self.channels = self.data.shape[0]
+
+    def __call__(self, *p_or_args):
+        p = p_or_args if len(p_or_args) == 1 else torch.stack(torch.broadcast_tensors(*p_or_args), -1)
+        assert p.shape[-1] == self.ndim
+
+        if p.ndim == 1:
+            p = p.unsqueeze(0)  # introduce batch dim if not present
+
+        # return p
+
+        p = 2*(p - self.ranges[:, 0]) / self.extents - 1
+
+        # -> (N=batch dims, channels, "image" dims..., ndim)
+        p_flat = p.reshape(-1, *((1,)*self.ndim), self.ndim)
+        data_flat = self.data.unsqueeze(0).expand(p_flat.shape[0], *self.data.shape)
+        res = func.grid_sample(data_flat, p_flat, align_corners=True)
+        return res.reshape(*p.shape[:-1], self.channels)
 
