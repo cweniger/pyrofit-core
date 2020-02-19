@@ -205,13 +205,13 @@ class CDFTransform(Transform):
 
 
 class Entropy:
-    def __init__(self, k=50, kmin=4, scale=20, device='cpu'):
-        self.weights = self.get_weights(k, kmin, scale, device=device)
+    def __init__(self, k=50, kmin=4, scale=20, power=0.33, device='cpu'):
+        self.weights = self.get_weights(k, kmin, scale, power, device=device)
 
     @staticmethod
-    def get_weights(k=50, kmin=4, scale=20, device='cpu'):
+    def get_weights(k=50, kmin=4, scale=20, power=1., device='cpu'):
         w = torch.arange(float(kmin), float(k))
-        w = w * torch.exp(-w / scale)
+        w = w**power * torch.exp(-w / scale)
         weights = torch.zeros(k, device=device)
         weights[kmin:] = w / w.sum()
         return weights
