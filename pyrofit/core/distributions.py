@@ -15,6 +15,8 @@ from torch.distributions import constraints
 
 from pykeops.torch import LazyTensor, Vi, Vj
 
+from pyrofit.core.utils import kNN_d2
+
 try:
     from torchinterp1d import Interp1d
 except ModuleNotFoundError:
@@ -216,30 +218,9 @@ class Entropy:
         weights[kmin:] = w / w.sum()
         return weights
 
-    @staticmethod
-    def _kNN(x, y, K):
-        """Get K nearest neighbours using keops"""
-        x_i = LazyTensor(x[:, None, :])  # (M, 1, ndim)
-        y_j = LazyTensor(y[None, :, :])  # (1, N, ndim)
-        D_ij = ((x_i - y_j)**2).sum(-1)  # (M, N) symbolic matrix of squared distances
-        return D_ij.argKmin(K, dim=1)  # (M, K) Minimum indices
-
-    @staticmethod
-    def _kNN_d2(x, y, K):
-        i = LazyTensor.sqdist(
-            LazyTensor(x.unsqueeze(-2)),
-            LazyTensor(y.unsqueeze(-3))
-        ).argKmin(K, dim=len(x.shape)-1)
-        return (x.unsqueeze(-2)
-                - y.__getitem__([torch.arange(i.shape[j]).reshape(tuple(sh))
-                                 for j, sh in enumerate(
-                                     torch.full([len(i.shape)-2, len(i.shape)], 1, dtype=int).fill_diagonal_(-1))]
-                                + [i])
-                ).pow(2.).sum(-1)
-
     def entropy_loss(self, x, d_min=1e-3):
         ndim = x.shape[-1]
-        d2 = Entropy._kNN_d2(x, x, len(self.weights)+1)[..., :, 1:]  # [0] was the point itself
+        d2 = kNN_d2(x, x, len(self.weights)+1)[..., :, 1:]  # [0] was the point itself
         return - ndim/2 * (self.weights * torch.log(d2 + d_min**2)).sum((-2, -1))
 
 
