@@ -2,14 +2,14 @@ pyrofit:
   module: examples.gp
   model: entropy
 conditioning:
-  entropy/obs: "$NPZ mock_gp.npz"
+  #entropy/obs: "$NPZ mock_gp.npz"
 guide:
   type: Delta
   match: .*
 entropy[Entropy]:  # Function name
   variables:
-    a: 2.00
+    a: 1.00
     #param: 1.0
     #  init: 0.5
-    b: 0.02
+    b: 0.05
     #param: 0.1
