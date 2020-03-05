@@ -1,3 +1,6 @@
+WARNING: This is research software under development. Use at your own risk.
+
+
 # pyrofit_core
 Data analysis build around pyro.ai
 
