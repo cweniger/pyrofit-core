@@ -329,7 +329,7 @@ def save_lossgrad(cond_model, guide, filename, N=2, skip_grad = False):
 
         guide_samples = guide_ret[0]
         for key, value in guide_samples.items():
-            guide_samples[key] = value.detach().numpy()
+            guide_samples[key] = value.detach().cpu().numpy()
         #        for site in guide.get_trace().nodes.values():
         #            if site['type'] == 'sample':
         #                guide_samples[site['name']] = site['value'].detach().numpy()
@@ -347,14 +347,15 @@ def save_lossgrad(cond_model, guide, filename, N=2, skip_grad = False):
         #             for site in param_capture.trace.nodes.values())
         # pyro.infer.util.zero_grads(params_dict)
 
+        param_dict = {}
+
         if not skip_grad:
             print()
             print("Parameter gradients:")
-            param_dict = {}
             for site in param_capture.trace.nodes.values():
                 grad = site["value"].unconstrained().grad
                 if grad is not None:
-                    param_dict[site["name"]] = grad.detach().numpy()
+                    param_dict[site["name"]] = grad.detach().cpu().numpy()
 
             for name, param in param_dict.items():
                 print(name + " :", param)
