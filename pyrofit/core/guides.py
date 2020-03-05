@@ -117,14 +117,20 @@ class HammerGuide(PyrofitGuide):
 
         # z0 parameters (fixed-width diagonal normal estimation)
         z0_loc = pyro.param(self.prefix+"guide_z0_loc", self.z0_init_loc)
-        # print(z0_loc)
         z0_scale = torch.tensor(self.guide_conf['scales'], device = self.device)
         guide_z0, model_zs0 = self.mygroup0.sample(self.prefix+'guide_z0',
                 dist.Normal(z0_loc, z0_scale).to_event(1))
 
         # z1 parameters (MAP estimation)
         z1_loc = pyro.param(self.prefix+"guide_z1_loc", self.z1_init_loc)
-        guide_z1, model_zs1 = self.mygroup1.sample(self.prefix+'guide_z1', dist.Delta(z1_loc).to_event(1))
+        if self.guide_conf['order'] == 0:
+            z1 = z1_loc
+        elif self.guide_conf['order'] == 1:
+            A_10 = pyro.param(self.prefix+"guide_A10", torch.zeros((self.shape1[0], self.shape0[0]), device = self.device))
+            z1 = z1_loc + (A_10*(guide_z0-z0_loc)).sum(1)
+        else:
+            raise KeyError("Only constant (0) and linear (1) order supported.")
+        guide_z1, model_zs1 = self.mygroup1.sample(self.prefix+'guide_z1', dist.Delta(z1).to_event(1))
 
         # Combine model predictions
         model_zs = model_zs0
@@ -186,10 +192,9 @@ class ProfileLikelihood(PyrofitGuide):
 
     def _linear(self, z0):
         device = tensor2device(z0)
-        b = pyro.param(self.prefix+"guide_b", 1.0*torch.randn(self.shape1, device = device))
+        b = pyro.param(self.prefix+"guide_b", torch.randn(self.shape1, device = device))
         A = pyro.param(self.prefix+"guide_A", torch.zeros(self.shape1 + self.shape0, device = device))
-        z0 = z0 - 1.025
-        z1 = b + 0*(A*z0).sum(1)
+        z1 = b + (A*z0).sum(1)
         return z1
 
     def guide(self):

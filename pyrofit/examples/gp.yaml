@@ -2,14 +2,16 @@ pyrofit:
   module: examples.gp
   model: entropy
 conditioning:
-  entropy/obs: "$NPZ mock_gp.npz"
+  entropy/obs: "$NPZ gp.mock.npz"
 guide:
-  type: Delta
-  match: .*
+  type: HammerGuide
+  match_master: "^entropy/[ab]$"
+  match_slave: "^((?!entropy/[ab]).)*$"
+  scales: [0.10]
 entropy[Entropy]:  # Function name
   variables:
-    a: 2.00
-    #param: 1.0
+    a: #0.010
+      sample: [dist.Uniform, 0.00, 0.05]
     #  init: 0.5
-    b: 0.02
-    #param: 0.1
+    b: #0.05
+      sample: [dist.Uniform, 0.03, 0.10]

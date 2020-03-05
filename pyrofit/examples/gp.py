@@ -3,11 +3,12 @@ import torch
 import pyro.distributions as dist
 from pyrofit.core import *
 from pykeops.torch import LazyTensor
+import random
 
 @register
 class Entropy:
     def __init__(self, device = 'cpu'):
-        pass
+        self.device = device
 
     @staticmethod
     def _kNN(x, y, K):
@@ -18,48 +19,41 @@ class Entropy:
         return D_ij.argKmin(K, dim=1)  # (M, K) Minimum indices
 
     def __call__(self, a:Yaml, b:Yaml):
-        N = 200  # Number of sources in the model
-        kmin, kmax = 10, 60
+        N = 200  # Number of pixels 
+        kmin, kmax = 10, 100
 
         # Fixed source positions
-        x = torch.linspace(-1, 1, N)
+        x = torch.linspace(-1+1.0/N, 1-1.0/N, N, device = self.device)
 
-        # Sample flux from normal distribution
-        y = pyro.sample("y", dist.Normal(0., 1.).expand_by((N,)))
-        #print(y.min(), y.max())
-
-        # Introduce random deviations in a
-        w1 = pyro.param("w1", torch.zeros(N))
-        da = torch.randn(1)*0.1
-        da = 0.1
-
-        # Apply
-        y = y + w1*da
-        a = a + da
-
+        # Sample flux from standard normal distribution
+        sigma = torch.tensor(1., device = self.device)
+        y = pyro.sample("y", dist.Normal(0., sigma).expand_by((N,)))
+        
         # Transform y
-        y = y.unsqueeze(1)
+        # phi-1(p) = sqrt(2)*erfinv(2p-1)
+        xnorm = 2**0.5*torch.erfinv(x)
+        xy = torch.stack([xnorm, y], dim = 1)
 
         # Construct vectors for distance calculation
-        ind = self._kNN(y, y, kmax)
+        ind = self._kNN(xy, xy, kmax)
 
-        # Calculate linear distance to 4+ NN
-        d2 = (y[ind][...,:1,:] - y[ind][...,kmin:,:])**2
-        d2 = d2[:,:,0]
+        # Calculate linear distance to kmin+ NNs
+        d2 = (xy[ind][...,:1,:] - xy[ind][...,kmin:,:])**2
+        d = (d2.sum(2))**0.5
 
         # Construct weights
-        w = torch.linspace(kmin, kmax-1., kmax - kmin)
-        #w = torch.ones(kmax - kmin)
+        w = torch.linspace(kmin, kmax-1., kmax - kmin, device = self.device)
         w /= w.sum()
 
         # Loss function obtained from weighted sum of log of distances
-        entropy_loss = 1.0*(-torch.log(d2**0.5)*w).sum()
+        entropy_loss = 2.0*(-torch.log(d)*w).sum()
 
         # Workaround sample call to add entropy loss to log_density
-        pyro.sample("fake", dist.Delta(torch.zeros(1), log_density = -entropy_loss), obs = torch.zeros(1))
+        pyro.sample("fake", dist.Delta(torch.zeros(1, device = self.device), log_density = -entropy_loss), obs = torch.zeros(1, device = self.device))
 
         # Construct spectrum
-        mu = (y*a*torch.exp(-(x.unsqueeze(0) -
-            x.unsqueeze(1))**2/b**2/2)).sum(0)
-        pyro.sample("obs", dist.Normal(mu, 1.0))
+        y = y.unsqueeze(1)
+        mu = (y*(a/b)*torch.exp(-(x.unsqueeze(0) - x.unsqueeze(1))**2/b**2/2)).sum(0)
+        pyro.sample("obs", dist.Normal(mu, 0.1))
         observe("mu", mu)
+        print(a, b)

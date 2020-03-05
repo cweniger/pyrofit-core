@@ -8,6 +8,7 @@ from pykeops.torch import LazyTensor
 class Entropy:
     def __init__(self, device = 'cpu'):
         self.device = device
+        self.k_counter = 0
 
     @staticmethod
     def _kNN(x, y, K):
@@ -22,7 +23,7 @@ class Entropy:
         N = 1000  # Number of sources
         Npix = 2000  # Number of image pixels
         SIGMA = 0.004  # Point source size
-        kmin, kmax = 30, 200  # max NNs
+        kmin, kmax = 10, 100  # max NNs
 
         # Sample flux from normal distribution
         sigma = torch.tensor([0., 1.], device = self.device)
@@ -32,10 +33,13 @@ class Entropy:
         #b_real = pyro.sample("b_real", dist.Normal(b, 1.0))
 #        pyro.sample("xmean", dist.Normal(x[:,0].mean(), 0.001), obs = torch.tensor(0., device = self.device))
 
-        ind_kNN = self._kNN(x, x, kmax)  # get sorted indices of NNs
+        if self.k_counter == 0:
+          self.ind_kNN = self._kNN(x, x, kmax)  # get sorted indices of NNs
+          self.k_counter = 10
+        self.k_counter -= 1
 
         # Calculate linear distance to 1+NN
-        d = ((x[ind_kNN][...,:1,:] - x[ind_kNN][...,kmin:,:])**2).sum((2,))**0.5
+        d = ((x[self.ind_kNN][...,:1,:] - x[self.ind_kNN][...,kmin:,:])**2).sum((2,))**0.5
 
         # Construct weights
         #w = torch.ones(kmax - kmin)
@@ -58,7 +62,7 @@ class Entropy:
 
         noise = torch.ones_like(mu)*0.3
         obs = pyro.sample("obs", dist.Normal(mu, noise))
-        print("obs:", obs.mean())
+        #print("obs:", obs.mean())
         observe("mu", mu)
         observe("pos", pos)
         observe("flux", flux)
