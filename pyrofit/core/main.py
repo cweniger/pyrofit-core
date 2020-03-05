@@ -312,7 +312,7 @@ def dictlist2listdict(L):
     return O
 
 
-def save_lossgrad(cond_model, guide, filename, N=2):
+def save_lossgrad(cond_model, guide, verbose, filename, N=2):
     param_dict_list = []
 
     guide_ret = [None]
@@ -328,34 +328,37 @@ def save_lossgrad(cond_model, guide, filename, N=2):
 
         guide_samples = guide_ret[0]
         for key, value in guide_samples.items():
-            guide_samples[key] = value.detach().numpy()
+            guide_samples[key] = value.detach().cpu().numpy()
         #        for site in guide.get_trace().nodes.values():
         #            if site['type'] == 'sample':
         #                guide_samples[site['name']] = site['value'].detach().numpy()
 
-        print()
-        print("Loss =", loss)
-
-        print()
-        print("Guide samples:")
-        for key, value in guide_samples.items():
-            print(key + " :", value)
+        if verbose:
+            print()
+            print("Loss =", loss)
+            print()
+            print("Guide samples:")
+            for key, value in guide_samples.items():
+                print(key + " :", value)
 
         # Zero grad (seems to be not necessary)
         # params = set(site["value"].unconstrained()
         #             for site in param_capture.trace.nodes.values())
         # pyro.infer.util.zero_grads(params_dict)
 
-        print()
-        print("Parameter gradients:")
+        if verbose:
+            print()
+            print("Parameter gradients:")
+
         param_dict = {}
         for site in param_capture.trace.nodes.values():
             grad = site["value"].unconstrained().grad
             if grad is not None:
-                param_dict[site["name"]] = grad.detach().numpy()
+                param_dict[site["name"]] = grad.detach().cpu().numpy()
 
-        for name, param in param_dict.items():
-            print(name + " :", param)
+        if verbose:
+            for name, param in param_dict.items():
+                print(name + " :", param)
 
         param_dict["loss"] = loss
         param_dict.update(guide_samples)
@@ -569,9 +572,10 @@ def ppd(ctx, guidefile, ppdfile, n_samples):
 # @click.option("--guide", default = "Delta")
 @click.option("--guidefile", default=None)
 @click.option("--n_samples", default=1, help="Number of samples (default 1).")
+@click.option("--verbose", default=False, help="Print more messages (default False)")
 @click.argument("outfile")
 @click.pass_context
-def lossgrad(ctx, guidefile, n_samples, outfile):
+def lossgrad(ctx, guidefile, n_samples, verbose, outfile):
     """Store model loss and gradient of guide parameters."""
     if guidefile is None:
         guidefile = ctx.obj["default_guidefile"]
@@ -583,7 +587,7 @@ def lossgrad(ctx, guidefile, n_samples, outfile):
         yaml_config["conditioning"], model, device=device
     )
     my_guide = init_guide(cond_model, guide_conf, guidefile=guidefile, device=device)
-    save_lossgrad(cond_model, my_guide, outfile, N=n_samples)
+    save_lossgrad(cond_model, my_guide, verbose, outfile, N=n_samples)
 
 
 # @cli.command()
