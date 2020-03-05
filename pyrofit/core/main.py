@@ -312,9 +312,10 @@ def dictlist2listdict(L):
     return O
 
 
-def save_lossgrad(cond_model, guide, filename, N=2):
+def save_lossgrad(cond_model, guide, filename, N=2, skip_grad = False):
     param_dict_list = []
 
+    # Note: This is a hacky way of extracting guide samples while calculating the loss
     guide_ret = [None]
 
     def wrapped_guide(*args, **kwargs):
@@ -346,16 +347,17 @@ def save_lossgrad(cond_model, guide, filename, N=2):
         #             for site in param_capture.trace.nodes.values())
         # pyro.infer.util.zero_grads(params_dict)
 
-        print()
-        print("Parameter gradients:")
-        param_dict = {}
-        for site in param_capture.trace.nodes.values():
-            grad = site["value"].unconstrained().grad
-            if grad is not None:
-                param_dict[site["name"]] = grad.detach().numpy()
+        if not skip_grad:
+            print()
+            print("Parameter gradients:")
+            param_dict = {}
+            for site in param_capture.trace.nodes.values():
+                grad = site["value"].unconstrained().grad
+                if grad is not None:
+                    param_dict[site["name"]] = grad.detach().numpy()
 
-        for name, param in param_dict.items():
-            print(name + " :", param)
+            for name, param in param_dict.items():
+                print(name + " :", param)
 
         param_dict["loss"] = loss
         param_dict.update(guide_samples)
@@ -569,9 +571,11 @@ def ppd(ctx, guidefile, ppdfile, n_samples):
 # @click.option("--guide", default = "Delta")
 @click.option("--guidefile", default=None)
 @click.option("--n_samples", default=1, help="Number of samples (default 1).")
+@click.option("--n_samples", default=1, help="Number of samples (default 1).")
+@click.option("--grads/--no-grads", default=True, help="Include gradients (default --grad).")
 @click.argument("outfile")
 @click.pass_context
-def lossgrad(ctx, guidefile, n_samples, outfile):
+def lossgrad(ctx, guidefile, n_samples, outfile, grads):
     """Store model loss and gradient of guide parameters."""
     if guidefile is None:
         guidefile = ctx.obj["default_guidefile"]
@@ -583,7 +587,7 @@ def lossgrad(ctx, guidefile, n_samples, outfile):
         yaml_config["conditioning"], model, device=device
     )
     my_guide = init_guide(cond_model, guide_conf, guidefile=guidefile, device=device)
-    save_lossgrad(cond_model, my_guide, outfile, N=n_samples)
+    save_lossgrad(cond_model, my_guide, outfile, N=n_samples, skip_grad = not grads)
 
 
 # @cli.command()
