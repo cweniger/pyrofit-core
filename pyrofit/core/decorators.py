@@ -47,6 +47,8 @@ CLASSES = {} #defaultdict(lambda: None)
 def load_yaml(yamlfile, device='cpu'):
     """
     Loads a yaml file for use as the pyrofit configuration.
+
+    .. warning:: Unclear if this should be exposed?
     """
     global YAML_CONFIG
 
@@ -88,12 +90,19 @@ def refresh_config(device="cpu"):
 #########################
 
 def register(obj):
-    """Register function or class for pyrofit use.
+    """Decorator to register python functions or classes for use in pyrofit.
+
+    Example::
+
+        @register
+        def function(x: Yaml):
+            return x
 
     This decorator has two effects:
+
     - Replace arguments annotated with `Yaml` by vales specified in YAML file.
-    - Prepend `name/` to all sampling site names, where `name` denotes either
-      the function or the class instance.
+    - Prepend the string ``name/`` to all sampling site names, where ``name``
+      is either the name of function or the name of the class instance.
     """
     if inspect.isclass(obj):
         return _reg_cls(obj)
@@ -170,7 +179,15 @@ def _reg_cls(cls):
     return Wrapped
 
 def instantiate(names = None, regex = None, **kwargs):
-    """Instantiate classes listed in YAML file."""
+    """Instantiates and returns selected classes listed in YAML file.
+    
+    Example::
+
+        instantiate(names = 'source1', x = 3)
+        # Instantiates entrpy `source1`, and provides `x = 3` as argument to __init__ function
+
+    This function can be used to instantiate a list of instances in the yaml file.
+    """
     result = {}
     names = [names] if isinstance(names, str) else names
     for key in YAML_CONFIG.keys():

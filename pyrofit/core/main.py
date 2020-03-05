@@ -1,9 +1,11 @@
+"""
 # pyrofit
 #
 # version: v0.1
 #
 # author: Christoph Weniger <c.weniger@uva.nl>
 # date: Jan - July 2019
+"""
 
 import importlib
 import inspect
