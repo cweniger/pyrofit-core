@@ -22,7 +22,7 @@ import sphinx_rtd_theme
 
 sys.path.insert(0, os.path.abspath('../../pyrofit/'))
 
-autodoc_mock_imports = ['yaml']
+autodoc_mock_imports = ['yaml', 'pyro']
 
 
 # -- General configuration ------------------------------------------------
