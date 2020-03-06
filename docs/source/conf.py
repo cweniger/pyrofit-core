@@ -20,8 +20,7 @@ import os
 import sys
 import sphinx_rtd_theme
 
-#sys.path.insert(0, os.path.abspath('../'))
-sys.path.insert(0, "/home/weniger/work/codes/pyrofit_core/pyrofit/")
+sys.path.insert(0, os.path.abspath('../../pyrofit/'))
 
 
 # -- General configuration ------------------------------------------------
