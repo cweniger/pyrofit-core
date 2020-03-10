@@ -13,9 +13,7 @@ import pyro
 import pyro.distributions as dist
 from torch.distributions import constraints
 
-from pykeops.torch import LazyTensor, Vi, Vj
-
-from pyrofit.core.utils import kNN_d2
+from pyrofit.core.utils import kNN_d2, moveaxis
 
 try:
     from torchinterp1d import Interp1d
@@ -171,6 +169,9 @@ class GaussianSampler(InverseTransformSampling):
 
     def transform_sample(self, sample):
         return self.ppf(self.standard_normal.cdf(sample)).reshape(sample.shape)
+
+    def inverse_transform(self, values):
+        return self.standard_normal.icdf(moveaxis(self.cdf(values.reshape(-1, values.shape[-1])).reshape(*self.standard_normal.batch_shape, values.shape[-1]), -1, 0))
 
     def sample(self, name: str, sample_shape: torch.Size):
         return self.transform_sample(self.draw(name, sample_shape))
