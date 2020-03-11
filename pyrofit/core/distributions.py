@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from math import pi, log, gamma
+
 import numpy as np
 import torch
 from torch.distributions.transformed_distribution import (
@@ -209,7 +211,9 @@ class CDFTransform(Transform):
 
 class Entropy:
     def __init__(self, k=50, kmin=4, scale=20, power=0.33, device='cpu'):
+        self.kmin, self.k = kmin, k
         self.weights = self.get_weights(k, kmin, scale, power, device=device)
+        self.device = device
 
     @staticmethod
     def get_weights(k=50, kmin=4, scale=20, power=1., device='cpu'):
@@ -219,10 +223,23 @@ class Entropy:
         weights[kmin:] = w / w.sum()
         return weights
 
+    @staticmethod
+    def ballfactor(ndim):
+        return pi**(ndim/2) / gamma(1 + ndim/2)
+
+    def normalising_factor(self, N, ndim):
+        return ((torch.digamma(torch.arange(1., self.k+1, device=self.device)) * self.weights).sum()
+                - torch.digamma(torch.tensor(float(N)))
+                - log(self.ballfactor(ndim)))
+
     def entropy_loss(self, x, d_min=1e-3):
         ndim = x.shape[-1]
         d2 = kNN_d2(x, x, len(self.weights)+1)[..., :, 1:]  # [0] was the point itself
         return - ndim/2 * (self.weights * torch.log(d2 + d_min**2)).sum((-2, -1))
+
+    def full_entropy(self, x, d_min=1e-3):
+        N, ndim = x.shape[-2:]
+        return - self.entropy_loss(x, d_min) / N - self.normalising_factor(N, ndim)
 
 
 def test1():
