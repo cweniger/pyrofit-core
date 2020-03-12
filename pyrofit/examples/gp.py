@@ -18,7 +18,7 @@ class Entropy:
         D_ij = ((x_i - y_j) ** 2).sum(-1)  # (M, N) symbolic matrix of squared distances
         return D_ij.argKmin(K, dim=1)  # (M, K) Minimum indices
 
-    def __call__(self, a:Yaml, b:Yaml):
+    def __call__(self, a:Yaml, b:Yaml, use_entropy: Yaml=True):
         N = 200  # Number of pixels 
         kmin, kmax = 10, 100
 
@@ -28,28 +28,29 @@ class Entropy:
         # Sample flux from standard normal distribution
         sigma = torch.tensor(1., device = self.device)
         y = pyro.sample("y", dist.Normal(0., sigma).expand_by((N,)))
-        
-        # Transform y
-        # phi-1(p) = sqrt(2)*erfinv(2p-1)
-        xnorm = 2**0.5*torch.erfinv(x)
-        xy = torch.stack([xnorm, y], dim = 1)
 
-        # Construct vectors for distance calculation
-        ind = self._kNN(xy, xy, kmax)
+        if use_entropy:
+            # Transform y
+            # phi-1(p) = sqrt(2)*erfinv(2p-1)
+            xnorm = 2**0.5*torch.erfinv(x)
+            xy = torch.stack([xnorm, y], dim = 1)
 
-        # Calculate linear distance to kmin+ NNs
-        d2 = (xy[ind][...,:1,:] - xy[ind][...,kmin:,:])**2
-        d = (d2.sum(2))**0.5
+            # Construct vectors for distance calculation
+            ind = self._kNN(xy, xy, kmax)
 
-        # Construct weights
-        w = torch.linspace(kmin, kmax-1., kmax - kmin, device = self.device)
-        w /= w.sum()
+            # Calculate linear distance to kmin+ NNs
+            d2 = (xy[ind][...,:1,:] - xy[ind][...,kmin:,:])**2
+            d = (d2.sum(2))**0.5
 
-        # Loss function obtained from weighted sum of log of distances
-        entropy_loss = 2.0*(-torch.log(d)*w).sum()
+            # Construct weights
+            w = torch.linspace(kmin, kmax-1., kmax - kmin, device = self.device)
+            w /= w.sum()
 
-        # Workaround sample call to add entropy loss to log_density
-        pyro.sample("fake", dist.Delta(torch.zeros(1, device = self.device), log_density = -entropy_loss), obs = torch.zeros(1, device = self.device))
+            # Loss function obtained from weighted sum of log of distances
+            entropy_loss = 2.0*(-torch.log(d)*w).sum()
+
+            # Workaround sample call to add entropy loss to log_density
+            pyro.sample("fake", dist.Delta(torch.zeros(1, device = self.device), log_density = -entropy_loss), obs = torch.zeros(1, device = self.device))
 
         # Construct spectrum
         y = y.unsqueeze(1)
