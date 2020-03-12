@@ -7,7 +7,7 @@ guide:
   type: HammerGuide
   match_master: "^entropy/[ab]$"
   match_slave: "^((?!entropy/[ab]).)*$"
-  scales: [0.001]
+  scales: [0.005]
   order: 0
 entropy[Entropy]:  # Function name
   variables:
