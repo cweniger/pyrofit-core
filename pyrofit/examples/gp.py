@@ -20,7 +20,8 @@ class Entropy:
 
     def __call__(self, a:Yaml, b:Yaml, use_entropy: Yaml=True,
                  kmin: Yaml=10, kmax: Yaml=100):
-        N = 200  # Number of pixels 
+        N = 200  # Number of pixels
+        kmin, kmax = int(kmin), int(kmax)
         # kmin, kmax = 10, 100
 
         # Fixed source positions
