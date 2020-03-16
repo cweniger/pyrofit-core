@@ -18,9 +18,10 @@ class Entropy:
         D_ij = ((x_i - y_j) ** 2).sum(-1)  # (M, N) symbolic matrix of squared distances
         return D_ij.argKmin(K, dim=1)  # (M, K) Minimum indices
 
-    def __call__(self, a:Yaml, b:Yaml, use_entropy: Yaml=True):
+    def __call__(self, a:Yaml, b:Yaml, use_entropy: Yaml=True,
+                 kmin: Yaml=10, kmax: Yaml=100):
         N = 200  # Number of pixels 
-        kmin, kmax = 10, 100
+        # kmin, kmax = 10, 100
 
         # Fixed source positions
         x = torch.linspace(-1+1.0/N, 1-1.0/N, N, device = self.device)
