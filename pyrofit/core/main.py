@@ -574,7 +574,6 @@ def ppd(ctx, guidefile, ppdfile, n_samples):
 # @click.option("--guide", default = "Delta")
 @click.option("--guidefile", default=None)
 @click.option("--n_samples", default=1, help="Number of samples (default 1).")
-@click.option("--n_samples", default=1, help="Number of samples (default 1).")
 @click.option("--grads/--no-grads", default=True, help="Include gradients (default --grad).")
 @click.argument("outfile")
 @click.pass_context
