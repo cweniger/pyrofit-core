@@ -8,6 +8,7 @@ guide:
   match_master: "^entropy/[ab]$"
   match_slave: "^((?!entropy/[ab]).)*$"
   scales: [0.10]
+  order: 1
 entropy[Entropy]:  # Function name
   variables:
     a: #0.010
