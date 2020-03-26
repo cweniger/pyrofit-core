@@ -857,7 +857,8 @@ def broadcast_index(x, i):
     a, b... are indices into the batch dimensions.
     """
     # Get the nearest neighbours by exploiting broadcasting of arange() to
-    # indexing correctly into the batch dimensions. Trust me: it works.
+    # index correctly into the batch dimensions. Trust me: it works.
+    i = i.expand(*x.shape[:-2], *i.shape[-2:])
     return x.__getitem__([torch.arange(i.shape[j]).reshape(tuple(sh))
                           for j, sh in enumerate(torch.full([len(x.shape) - 2, len(i.shape)], 1, dtype=int).fill_diagonal_(-1))] + [i])
 
