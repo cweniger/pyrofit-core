@@ -862,7 +862,8 @@ def broadcast_index(x, i):
                           for j, sh in enumerate(torch.full([len(x.shape) - 2, len(i.shape)], 1, dtype=int).fill_diagonal_(-1))] + [i])
 
 
-def kNN_d2(x: torch.tensor, y: torch.tensor, k: int) -> torch.tensor:
+def kNN_d2(x: torch.tensor, y: torch.tensor, k: int,
+           x0: torch.tensor=None, y0: torch.tensor=None) -> torch.tensor:
     """
     Get squared distances to k nearest neighbours using keops.
 
@@ -871,6 +872,8 @@ def kNN_d2(x: torch.tensor, y: torch.tensor, k: int) -> torch.tensor:
     x: torch.tensor: Size(batch dims..., M, ndim)
     y: torch.tensor: Size(batch dims..., N, ndim)
     k: int
+    x0: torch.tensor: Size(batch dims..., M, ndim)
+    y0: torch.tensor: Size(batch dims..., N, ndim)
 
     Returns
     -------
@@ -879,5 +882,10 @@ def kNN_d2(x: torch.tensor, y: torch.tensor, k: int) -> torch.tensor:
     a, b... are indices into the batch dimensions. Note that if x == y, then
     d2[..., 0] == 0, i.e. if the two point sets are the same, the nearest
     neighbour to each point is the point itself.
+    If x0, y0 are given, they are used to determine the neighbours.
     """
-    return (x.unsqueeze(-2) - broadcast_index(y, kNN(x, y, k))).pow(2.).sum(-1)
+    if x0 is None or y0 is None:
+        x0 = x
+        y0 = y
+
+    return (x.unsqueeze(-2) - broadcast_index(y, kNN(x0, y0, k))).pow(2.).sum(-1)

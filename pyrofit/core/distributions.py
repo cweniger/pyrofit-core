@@ -15,7 +15,7 @@ import pyro
 import pyro.distributions as dist
 from torch.distributions import constraints
 
-from pyrofit.core.utils import kNN_d2, moveaxis
+from pyrofit.core.utils import kNN_d2, kNN, broadcast_index, moveaxis
 
 try:
     from torchinterp1d import Interp1d
@@ -232,10 +232,12 @@ class Entropy:
                 - torch.digamma(torch.tensor(float(N)))
                 - log(self.ballfactor(ndim)))
 
+    def d2(self, x):
+        return kNN_d2(x, x, len(self.weights) + 1)[..., :, 1:]  # [0] was the point itself
+
     def log_p(self, x, d_min=1e-3):
         ndim = x.shape[-1]
-        d2 = kNN_d2(x, x, len(self.weights) + 1)[..., :, 1:]  # [0] was the point itself
-        return ndim / 2 * (self.weights * torch.log(d2 + d_min ** 2)).sum(-1)
+        return ndim / 2 * (self.weights * torch.log(self.d2(x) + d_min**2)).sum(-1)
 
     def entropy_loss(self, x, d_min=1e-3):
         return - self.log_p(x, d_min).sum(-1)
@@ -243,6 +245,15 @@ class Entropy:
     def full_entropy(self, x, d_min=1e-3):
         N, ndim = x.shape[-2:]
         return self.log_p(x, d_min).mean(-1) - self.normalising_factor(N, ndim)
+
+
+class ConstantNeighboursEntropy(Entropy):
+    def __init__(self, *args, x0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.i = kNN(x0, x0, len(self.weights)+1)
+
+    def d2(self, x):
+        return (x.unsqueeze(-2) - broadcast_index(x, self.i)).pow(2.).sum(-1)[..., :, 1:]
 
 
 def test1():
