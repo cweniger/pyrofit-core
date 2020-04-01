@@ -20,8 +20,9 @@ import os
 import sys
 import sphinx_rtd_theme
 
-#sys.path.insert(0, os.path.abspath('../'))
-sys.path.insert(0, "/home/weniger/work/codes/pyrofit_core/pyrofit/")
+sys.path.insert(0, os.path.abspath('../../pyrofit/'))
+
+autodoc_mock_imports = ['yaml', 'pyro', 'numpy', 'torch', 'pykeops']
 
 
 # -- General configuration ------------------------------------------------
@@ -174,7 +175,4 @@ texinfo_documents = [
      author, 'pyrofit_core', 'One line description of project.',
      'Miscellaneous'),
 ]
-
-
-#autodoc_mock_imports = ['pyro', 'torch']
 

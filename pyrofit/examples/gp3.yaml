@@ -1,0 +1,28 @@
+pyrofit:
+  module: examples.gp3
+  model: entropy
+conditioning:
+  entropy/obs: "$NPZ gp3.mock.npz"
+guide:
+  type: Delta
+  match: .*
+  #type: HammerGuide
+  #match_master: "^entropy/[abc]$"
+  #match_slave: "^((?!entropy/[abc]).)*$"
+  #scales: [0.001]
+  #order: 0
+entropy[Entropy]:  # Function name
+  variables:
+    use_entropy: True
+
+    a:  0.01
+    #param: 0.025
+    #sample: [dist.Uniform, 0.009999, 0.01001]
+      #
+    b: 0.05
+    #param: 0.06
+    #sample: [dist.Uniform, 0.03, 0.10]
+    #  init: 0.04
+    #
+    c: 0.1
+      #param: 0.1

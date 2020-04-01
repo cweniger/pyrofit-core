@@ -7,12 +7,14 @@ guide:
   type: HammerGuide
   match_master: "^entropy/[ab]$"
   match_slave: "^((?!entropy/[ab]).)*$"
-  scales: [0.10]
-  order: 1
+  scales: [0.005]
+  order: 0
 entropy[Entropy]:  # Function name
   variables:
-    a: #0.010
+    use_entropy: 1
+    a: #0.01
       sample: [dist.Uniform, 0.00, 0.05]
-    #  init: 0.5
+      init: 0.04
     b: #0.05
       sample: [dist.Uniform, 0.03, 0.10]
+      init: 0.0301
