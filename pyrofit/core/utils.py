@@ -693,7 +693,7 @@ def moveaxis(tensor, src, dst):
     return tensor.permute(dims)
 
 
-def num_to_tensor(*args, device='cpu'):
+def num_to_tensor(*args, device=None):
     return [torch.as_tensor(a, dtype=torch.get_default_dtype(), device=device)
             for a in args]
     # return [a.to(device) if torch.is_tensor(a) else torch.tensor(a, device=device) for a in args]
