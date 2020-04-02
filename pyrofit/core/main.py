@@ -17,14 +17,15 @@ import numpy as np
 import pyro
 import pyro.distributions as dist
 import torch
-# from ruamel.yaml import YAML
-# yaml = YAML()
-import yaml
 from pyro import poutine
-from pyro.contrib.autoguide import (AutoDelta, AutoDiagonalNormal,
-                                    AutoLaplaceApproximation,
-                                    AutoLowRankMultivariateNormal,
-                                    AutoMultivariateNormal, init_to_sample)
+from pyro.contrib.autoguide import (
+    AutoDelta,
+    AutoDiagonalNormal,
+    AutoLaplaceApproximation,
+    AutoLowRankMultivariateNormal,
+    AutoMultivariateNormal,
+    init_to_sample,
+)
 from pyro.infer import SVI, JitTrace_ELBO, Trace_ELBO
 from pyro.infer.mcmc import MCMC, NUTS, util
 from pyro.optim import SGD, Adam
@@ -161,7 +162,7 @@ def infer_VI(
     device="cpu",
     n_particles=1,
     conv_th=0.0,
-    verbose=True
+    verbose=True,
 ):
     """Runs MAP parameter inference.
 
@@ -314,7 +315,7 @@ def dictlist2listdict(L):
     return O
 
 
-def save_lossgrad(cond_model, guide, verbose, filename, N=2, skip_grad = False):
+def save_lossgrad(cond_model, guide, verbose, filename, N=2, skip_grad=False):
     param_dict_list = []
 
     # Note: This is a hacky way of extracting guide samples while calculating the loss
@@ -395,25 +396,6 @@ def save_mock(model, filename, use_init_values=True):
     np.savez(filename, **mock)
 
 
-# TODO: Rewrite Info Command
-# def info(cond_model, guidetype, guidefile, device = 'cpu'):
-#    # Initialize VI model and guide
-#    guide = init_guide(cond_model, guidetype, guidefile = guidefile)
-#
-#    loss = Trace_ELBO()
-#    svi = SVI(cond_model, guide, optimizer, loss=loss)
-#    loss = svi.step()
-#
-#    print("LOSS =", loss)
-#    print()
-#
-#    print("####################")
-#    print("# Parameter values #")
-#    print("####################")
-#    for name, value in pyro.get_param_store().items():
-#        print(name + ": " + str(value))
-
-
 ########################
 # Command line interface
 ########################
@@ -478,7 +460,9 @@ def cli(ctx, device, yamlfile):
     "--n_particles", default=1, help="Particles used in optimization step (default 1)."
 )
 @click.option("--conv_th", default=0.0, help="Convergence threshold (default 0).")
-@click.option("--verbose", default=False, help="Print more messages (default False)")
+@click.option(
+    "--verbose/--no-verbose", default=False, help="Print more messages (default False)"
+)
 # @click.option("--quantfile", default = None)
 @click.pass_context
 def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th, verbose):
@@ -502,7 +486,7 @@ def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th, verbose):
         n_write=n_write,
         n_particles=n_particles,
         conv_th=conv_th,
-        verbose=verbose
+        verbose=verbose,
     )
 
 
@@ -577,8 +561,12 @@ def ppd(ctx, guidefile, ppdfile, n_samples):
 # @click.option("--guide", default = "Delta")
 @click.option("--guidefile", default=None)
 @click.option("--n_samples", default=1, help="Number of samples (default 1).")
-@click.option("--verbose", default=False, help="Print more messages (default False)")
-@click.option("--grads/--no-grads", default=True, help="Include gradients (default --grad).")
+@click.option(
+    "--verbose/--no-verbose", default=False, help="Print more messages (default False)"
+)
+@click.option(
+    "--grads/--no-grads", default=True, help="Include gradients (default --grad)."
+)
 def lossgrad(ctx, guidefile, n_samples, verbose, outfile, grads):
     """Store model loss and gradient of guide parameters."""
     if guidefile is None:
@@ -591,18 +579,6 @@ def lossgrad(ctx, guidefile, n_samples, verbose, outfile, grads):
         yaml_config["conditioning"], model, device=device
     )
     my_guide = init_guide(cond_model, guide_conf, guidefile=guidefile, device=device)
-    save_lossgrad(cond_model, my_guide, verbose, outfile, N=n_samples, skip_grad = not grads)
-
-
-# @cli.command()
-# @click.option("--guide", default = "Delta", help = "Guide type.")
-# @click.option("--guidefile", default = None, help = "Guide filename.")
-# @click.pass_context
-# def info(ctx, guide, guidefile):
-#    """Parameter inference with variational methods."""
-#    if guidefile is None: guidefile = ctx.obj['default_guidefile']
-#    model = ctx.obj['model']
-#    device = ctx.obj['device']
-#    yaml_config = ctx.obj['yaml_config']
-#    cond_model = get_conditioned_model(yaml_config["conditioning"], model, device = device)
-#    info(cond_model, guide, guidefile, device = device)
+    save_lossgrad(
+        cond_model, my_guide, verbose, outfile, N=n_samples, skip_grad=not grads
+    )
