@@ -2,10 +2,11 @@ from typing import TypeVar
 import importlib
 from collections import defaultdict
 import inspect
-import yaml
 import re
 from pyro.contrib.autoname import scope
 from .yaml_params2 import yaml2actions, yaml2settings
+from ruamel.yaml import YAML
+yaml = YAML()
 
 #############################################################
 # Global wrapped class register (used for auto-instantiation)
@@ -53,7 +54,7 @@ def load_yaml(yamlfile, device='cpu'):
     global YAML_CONFIG
 
     with open(yamlfile, "r") as stream:
-        YAML_CONFIG = yaml.load(stream, Loader=yaml.FullLoader)
+        YAML_CONFIG = yaml.load(stream)
 
     return refresh_config(device)
 
@@ -112,10 +113,10 @@ def register(obj):
 def _parse_signature(fn):
     sig = inspect.signature(fn)
     params = [key for key in sig.parameters if sig.parameters[key].annotation != Yaml]
-    yaml = [key for key in sig.parameters if sig.parameters[key].annotation == Yaml]
+    yaml_data = [key for key in sig.parameters if sig.parameters[key].annotation == Yaml]
     params.sort()
-    yaml.sort()
-    return {'params':params, 'yaml': yaml}
+    yaml_data.sort()
+    return {'params':params, 'yaml': yaml_data}
 
 def _reg_fn(fn):
     # Prefix sample sites
