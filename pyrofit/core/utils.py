@@ -693,6 +693,11 @@ def moveaxis(tensor, src, dst):
     return tensor.permute(dims)
 
 
+def broadcast_except(*tensors, dim=-1):
+    shape = torch.broadcast_tensors(*[t.select(dim, 0) for t in tensors])[0].shape
+    return [t.expand(*shape[:t.ndim+dim+1], t.shape[dim], *shape[t.ndim+dim+1:]) for t in tensors]
+
+
 def num_to_tensor(*args, device=None):
     return [torch.as_tensor(a, dtype=torch.get_default_dtype(), device=device)
             for a in args]
