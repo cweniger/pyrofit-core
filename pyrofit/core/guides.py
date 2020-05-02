@@ -290,17 +290,17 @@ def get_custom_guide(cond_model, guide_conf):
     module_name = guide_conf['module']
     my_module = importlib.import_module("pyrofit."+module_name)
     name = guide_conf['name']
-    guide = getattr(my_module, name)
+    guide_cls = getattr(my_module, name)
+    guide = guide_cls(cond_model, guide_conf)
 
     return guide
-
 
 GUIDE_MAP = {
         "Delta": DeltaGuide,
         "MAP": MAPGuide,
         "DiagonalNormal": DiagonalNormalGuide,
         "MultivariateNormal": MultivariateNormalGuide,
-        #"Custom": get_custom_guide,
+        "CustomGuide": get_custom_guide,
         "ProfileLikelihood": ProfileLikelihood,
         "HammerGuide": HammerGuide,
         "SuperGuide": SuperGuide
@@ -310,11 +310,12 @@ def init_guide(cond_model, guide_conf, guidefile = None, device = 'cpu'):
     guidetype = guide_conf['type']
     if guidefile is not None:
         load_param_store(guidefile, device = device)
-    try:
-        proto_guide = GUIDE_MAP[guidetype]
-    except KeyError:
-        raise KeyError("Guide type unknown")
-    guide = proto_guide(cond_model, guide_conf)
+    if guidetype is in GUIDE_MAP.keys():
+        guide_cls = GUIDE_MAP[guidetype]
+    else:
+        except KeyError:
+            raise KeyError("Guide type unknown")
+    guide = guide_cls(cond_model, guide_conf)
 
     # We hide the first argument (unconstrained parameters) from the main code
     return lambda *args, **kwargs: guide(*args, **kwargs)[1]
