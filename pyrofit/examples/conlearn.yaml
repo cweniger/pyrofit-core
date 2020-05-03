@@ -1,0 +1,15 @@
+pyrofit:
+  module: examples.conlearn
+  model: model 
+conditioning:
+  model/x: "$NPZ conlearn.mock.npz"
+guide:
+  type: CustomGuide
+  module: examples.conlearn
+  name: ConLearnGuide
+model[Model]:
+  variables:
+    offset:
+      sample: [dist.Normal, 0.0, 1.0]
+    slope:
+      sample: [dist.Normal, 0.0, 1.0]
