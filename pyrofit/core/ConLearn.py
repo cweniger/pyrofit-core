@@ -35,7 +35,6 @@ class ConLearn(Importance):
                  model,
                  guide,
                  optim,
-                 observations={},
                  training_batch_size=4,
                  num_inference_samples=10,
                  validation_batch_size=20, site_names = None):
@@ -43,7 +42,7 @@ class ConLearn(Importance):
         self.model = model
         self.guide = guide
         self.optim = optim
-        self.observations = observations
+        self.observations = self._get_observations(model)
         self.training_batch_size = training_batch_size
         self.validation_batch_size = validation_batch_size
         self.validation_batch = None
@@ -279,3 +278,12 @@ class ConLearn(Importance):
             trace = model_trace_msg.get_trace()
             trace.detach_()
             return trace
+
+
+    def _get_observations(self, cond_model):
+        trace = pyro.poutine.trace(cond_model).get_trace()
+        observations = {}
+        for name in trace.observation_nodes:
+            value = trace.nodes[name]['value']
+            observations[name] = value
+        return observations

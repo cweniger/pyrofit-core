@@ -251,6 +251,103 @@ def infer_fit(
     save_guide(guidefile)
 
 
+# TODO: Merge with infer_fit if possibel
+def infer_CS(
+    cond_model,
+    guide_conf,
+    guidefile,
+    n_steps,
+    lr=1e-3,
+    n_write=300,
+    device="cpu",
+    n_particles=1,
+    conv_th=0.0,
+    verbose=True,
+):
+    """Contrastive inference.
+
+    Regularly saves the parameter and loss values. Also saves the pyro
+    parameter store so runs can be resumed.
+
+    Parameters
+    ----------
+    args : dict
+        Command line arguments
+    cond_model : callable
+        Lensing system model conditioned on an observed image.
+    n_write : int
+        Number of iterations between parameter store and loss and parameter
+        saves.
+
+    Returns
+    -------
+    loss : float
+        Final value of loss.
+    """
+
+    # Initialize VI model and guide
+    guide = init_guide(cond_model, guide_conf, guidefile=guidefile, device=device)
+
+    optimizer = Adam({"lr": lr, "amsgrad": False, "weight_decay": 0.0})
+
+    conlearn= ConLearn(cond_model, guide, optimizer)
+    conlearn.simulate(1000, replace = True)
+
+    if verbose:
+        print()
+        print("##################")
+        print("# Initial values #")
+        print("##################")
+        print("Parameter store:")
+        for name, value in pyro.get_param_store().items():
+            print(name + ": " + str(value))
+        print()
+        print("Guide:")
+        for name, value in guide().items():
+            print(name + ": " + str(value))
+        print()
+
+    print("################################")
+    print("# Optimizing. Hang tight. #")
+    print("################################")
+    losses = []
+    with tqdm(total=n_steps) as t:
+        for i in range(n_steps):
+            if i % n_write == 0:
+                pyro.get_param_store().save(guidefile)
+
+            loss = conlearn.step()
+            losses.append(loss)
+            minloss = min(losses)
+            t.postfix = "loss=%.3f (%.3f)" % (loss, minloss)
+            t.update()
+
+            if len(losses) > 100:
+                dl = (np.mean(losses[-100:-80]) - np.mean(losses[-20:])) / 80
+                if conv_th > 0.0 and dl < conv_th:
+                    print(
+                        "Convergence criterion reached: d_loss/d_step < %.3e" % conv_th
+                    )
+                    break
+            # print(np.mean(losses[-500:]))
+
+    if verbose:
+        print()
+        print("################")
+        print("# Final values #")
+        print("################")
+        print("Parameter store:")
+        for name, value in pyro.get_param_store().items():
+            print(name + ": " + str(value))
+        print()
+        print("Guide:")
+        for name, value in guide().items():
+            print(name + ": " + str(value))
+        print()
+
+    save_guide(guidefile)
+
+
 def save_posterior_predictive(model, guide, filename, N=300):
     if N == 1:
         mock = {}
@@ -417,7 +514,6 @@ def cli(ctx, device, yamlfile):
 
 @cli.command()
 @click.option("--n_steps", default=1000)
-# @click.option("--guide", default = "Delta", help = "Guide type (default Delta).")
 @click.option(
     "--guidefile", default=None, help="Guide filename (default YAML.guide.pt."
 )
@@ -432,7 +528,48 @@ def cli(ctx, device, yamlfile):
 @click.option(
     "--verbose/--no-verbose", default=False, help="Print more messages (default False)"
 )
-# @click.option("--quantfile", default = None)
+@click.pass_context
+def learn(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th, verbose):
+    """Parameter inference with contrastive learning."""
+    if guidefile is None:
+        guidefile = ctx.obj["default_guidefile"]
+    model = ctx.obj["model"]
+    device = ctx.obj["device"]
+    yaml_config = ctx.obj["yaml_config"]
+    cond_model = get_conditioned_model(
+        yaml_config["conditioning"], model, device=device
+    )
+    guide_conf = yaml_config["guide"]
+    infer_CS(
+        cond_model,
+        guide_conf,
+        guidefile,
+        n_steps,
+        device=device,
+        lr=lr,
+        n_write=n_write,
+        n_particles=n_particles,
+        conv_th=conv_th,
+        verbose=verbose,
+    )
+
+
+@cli.command()
+@click.option("--n_steps", default=1000)
+@click.option(
+    "--guidefile", default=None, help="Guide filename (default YAML.guide.pt."
+)
+@click.option("--lr", default=1e-3, help="Learning rate (default 1e-3).")
+@click.option(
+    "--n_write", default=200, help="Steps after which guide is written (default 200)."
+)
+@click.option(
+    "--n_particles", default=1, help="Particles used in optimization step (default 1)."
+)
+@click.option("--conv_th", default=0.0, help="Convergence threshold (default 0).")
+@click.option(
+    "--verbose/--no-verbose", default=False, help="Print more messages (default False)"
+)
 @click.pass_context
 def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th, verbose):
     """Parameter inference with variational methods."""
