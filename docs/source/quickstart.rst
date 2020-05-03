@@ -42,5 +42,5 @@ Performing fit to mock data
 ---------------------------
 
 
-Estimating posterior
---------------------
+Estimating posteriors
+---------------------
