@@ -310,11 +310,10 @@ def init_guide(cond_model, guide_conf, guidefile = None, device = 'cpu'):
     guidetype = guide_conf['type']
     if guidefile is not None:
         load_param_store(guidefile, device = device)
-    if guidetype is in GUIDE_MAP.keys():
+    if guidetype in GUIDE_MAP.keys():
         guide_cls = GUIDE_MAP[guidetype]
     else:
-        except KeyError:
-            raise KeyError("Guide type unknown")
+        raise KeyError("Guide type unknown")
     guide = guide_cls(cond_model, guide_conf)
 
     # We hide the first argument (unconstrained parameters) from the main code
