@@ -34,6 +34,7 @@ from tqdm import tqdm
 from . import decorators, yaml_params2
 from .guides import init_guide
 from .utils import load_param_store
+from .conlearn import ConLearn
 
 ######################
 # Auxilliary functions
@@ -290,7 +291,7 @@ def infer_CS(
 
     optimizer = Adam({"lr": lr, "amsgrad": False, "weight_decay": 0.0})
 
-    conlearn= ConLearn(cond_model, guide, optimizer)
+    conlearn= ConLearn(cond_model, guide, optimizer, site_names = ["model/slope", "model/offset"])
     conlearn.simulate(1000, replace = True)
 
     if verbose:

@@ -292,7 +292,6 @@ def get_custom_guide(cond_model, guide_conf):
     name = guide_conf['name']
     guide_cls = getattr(my_module, name)
     guide = guide_cls(cond_model, guide_conf)
-
     return guide
 
 GUIDE_MAP = {

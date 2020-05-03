@@ -9,6 +9,7 @@ import pyro.poutine as poutine
 from pyro.infer.util import torch_item
 from pyro.poutine.util import prune_subsample_sites
 from pyro.util import check_model_guide_match, warn_if_nan
+from pyro.infer.importance import Importance
 
 class ConLearn(Importance):
     """
@@ -157,8 +158,10 @@ class ConLearn(Importance):
                 f_phis = guide_losses + log_prob_priors
                 r = -torch.log_softmax(-f_phis, 0)
                 particle_loss = r[i].sum()/batch_size
-    
+
                 loss += particle_loss
+
+        warn_if_nan(loss, "loss")
 
         if grads:
             guide_params = set(site["value"].unconstrained()
@@ -173,7 +176,6 @@ class ConLearn(Importance):
                     if guide_grad is not None:
                         guide_param.grad =  guide_param.grad + guide_grad 
 
-        warn_if_nan(loss, "loss")
         return torch_item(loss)
 
     def _differentiable_loss_particle(self, guide_trace, site_filter = lambda name, site: True, site_name = None):
@@ -181,7 +183,9 @@ class ConLearn(Importance):
             return -guide_trace.log_prob_sum(site_filter = site_filter)
         else:
             guide_trace.compute_log_prob(site_filter = lambda name, site: name == site_name)
-            return -guide_trace.nodes[site_name]['log_prob']
+            log_prob = guide_trace.nodes[site_name]['log_prob']
+            print(log_prob)
+            return -log_prob
 
     def validation_loss(self, *args, **kwargs):
         """
