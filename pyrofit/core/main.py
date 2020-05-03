@@ -73,7 +73,7 @@ def make_transformed_pe(potential_fn, transform, unpack_fn):
     return transformed_potential_fn
 
 
-def infer_NUTS(
+def infer_sample(
     cond_model,
     n_steps,
     warmup_steps,
@@ -152,7 +152,7 @@ def infer_NUTS(
 LOSS_SUM = []
 
 
-def infer_VI(
+def infer_fit(
     cond_model,
     guide_conf,
     guidefile,
@@ -249,37 +249,6 @@ def infer_VI(
         print()
 
     save_guide(guidefile)
-
-
-def infer(args, config, cond_model):
-    """Runs a parameter inference algorithm.
-
-    Parameters
-    ----------
-    args : dict
-        The value corresponding to 'mode' must be a string specifying the
-        inference method.
-    config : dict
-        Config information.
-    model : callable
-        The unconditioned lensing system model.
-
-    Returns
-    -------
-    float
-        If finding a point-estimate of the lensing system parameters, the loss
-        between observed and inferred images. Otherwise, 0.
-    """
-
-    if args["mode"] == "MAP":
-        loss = _infer_VI(args, cond_model)
-    elif args["mode"] == "NUTS":
-        _infer_NUTS(args, cond_model)
-        loss = 0.0
-    else:
-        raise KeyError("Unknown mode (select MAP or NUTS).")
-
-    return loss
 
 
 def save_posterior_predictive(model, guide, filename, N=300):
@@ -476,7 +445,7 @@ def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th, verbose):
         yaml_config["conditioning"], model, device=device
     )
     guide_conf = yaml_config["guide"]
-    infer_VI(
+    infer_fit(
         cond_model,
         guide_conf,
         guidefile,
@@ -510,7 +479,7 @@ def sample(ctx, warmup_steps, n_steps, guidefile, mcmcfile):
     if mcmcfile is None:
         mcmcfile = ctx.obj["yamlfile"][:-5] + ".mcmc.pkl"
 
-    infer_NUTS(
+    infer_sample(
         cond_model,
         n_steps,
         warmup_steps,
