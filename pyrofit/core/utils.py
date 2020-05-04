@@ -664,7 +664,7 @@ def load_param_store(paramfile, device = 'cpu'):
         pyro.get_param_store().load(paramfile, map_location = device)
         print("Loading guide:", paramfile)
     except FileNotFoundError:
-        print("Could not open %s. Starting with fresh guide."%paramfile)
+        print("Could not open %s. Starting with new guide."%paramfile)
 
 def tensor2device(t):
     if t.is_cuda:

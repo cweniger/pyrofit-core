@@ -10,6 +10,7 @@ from pyro.infer.util import torch_item
 from pyro.poutine.util import prune_subsample_sites
 from pyro.util import check_model_guide_match, warn_if_nan
 from pyro.infer.importance import Importance
+from tqdm import tqdm
 
 class ConLearn(Importance):
     """
@@ -49,7 +50,6 @@ class ConLearn(Importance):
         self.validation_batch = None
         self.site_names = site_names
         self.simulations = []
-        self.R = 0  # round counter
 
     def set_validation_batch(self, *args, **kwargs):
         """
@@ -58,7 +58,7 @@ class ConLearn(Importance):
         Arguments are passed directly to model.
         """
         # TODO: Needs to be updated
-        self.validation_batch = [self._sample_from_joint(0, *args, **kwargs)
+        self.validation_batch = [self._sample_from_joint(True, *args, **kwargs)
                                  for _ in range(self.validation_batch_size)]
 
     def step(self, *args, **kwargs):
@@ -82,11 +82,15 @@ class ConLearn(Importance):
 
         return torch_item(loss)
 
-    def simulate(self, n_simulations, *args, replace = False, **kwargs):
+    def simulate(self, n_simulations, *args, gen_samples = False, replace = False, **kwargs):
         """Simulate more training data: x, z ~ P(x|z) Q(z|x_0)"""
-        new_simulations = [self._sample_from_joint(self.R, *args, **kwargs)
-                    for _ in range(n_simulations)]
-        self.R += 1
+        new_simulations = []
+        if gen_samples:
+            desc = 'Simulate from p(x,z)'
+        else:
+            desc = 'Simulate from p(x|z)q(z|x_0)'
+        for i in tqdm(range(n_simulations), desc=desc):
+            new_simulations.append(self._sample_from_joint(gen_samples, *args, **kwargs))
         if replace:
           self.simulations = new_simulations
         else:
@@ -184,7 +188,6 @@ class ConLearn(Importance):
         else:
             guide_trace.compute_log_prob(site_filter = lambda name, site: name == site_name)
             log_prob = guide_trace.nodes[site_name]['log_prob']
-            print(log_prob)
             return -log_prob
 
     def validation_loss(self, *args, **kwargs):
@@ -254,7 +257,7 @@ class ConLearn(Importance):
 
         return guide_trace
 
-    def _sample_from_joint(self, R, *args, **kwargs):
+    def _sample_from_joint(self, gen_samples, *args, **kwargs):
         """
         :returns: a sample from the joint distribution over unobserved and
             observed variables
@@ -264,7 +267,7 @@ class ConLearn(Importance):
 
         Arguments are passed directly to the model.
         """
-        if R == 0:  # first round, sample from original model
+        if gen_samples:
             unconditioned_model = pyro.poutine.uncondition(self.model)
             return poutine.trace(unconditioned_model).get_trace(*args, **kwargs)
         else:

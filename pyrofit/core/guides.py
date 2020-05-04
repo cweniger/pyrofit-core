@@ -305,7 +305,15 @@ GUIDE_MAP = {
         "SuperGuide": SuperGuide
         }
 
-def init_guide(cond_model, guide_conf, guidefile = None, device = 'cpu'):
+def get_observations_from_cond_model(cond_model):
+    trace = pyro.poutine.trace(cond_model).get_trace()
+    observations = {}
+    for name in trace.observation_nodes:
+        value = trace.nodes[name]['value']
+        observations[name] = value
+    return observations
+
+def init_guide(cond_model, guide_conf, guidefile = None, with_observations = False, device = 'cpu'):
     guidetype = guide_conf['type']
     if guidefile is not None:
         load_param_store(guidefile, device = device)
@@ -313,10 +321,22 @@ def init_guide(cond_model, guide_conf, guidefile = None, device = 'cpu'):
         guide_cls = GUIDE_MAP[guidetype]
     else:
         raise KeyError("Guide type unknown")
-    guide = guide_cls(cond_model, guide_conf)
 
+    ### Instantiate guide
+    guide = guide_cls(cond_model, guide_conf)
+    observations = get_observations_from_cond_model(cond_model)
+
+    ### Wrap guide
     # We hide the first argument (unconstrained parameters) from the main code
-    return lambda *args, **kwargs: guide(*args, **kwargs)[1]
+    # Furthermore, we provide default observations if requested.
+
+    def wrapped_guide(*args, **kwargs):
+        if with_observations and 'observations' not in kwargs.keys():
+            kwargs['observations'] = observations
+        return guide(*args, **kwargs)[1]
+
+    return wrapped_guide
+
 
 
 #######

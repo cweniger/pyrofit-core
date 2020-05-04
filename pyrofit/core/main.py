@@ -33,7 +33,6 @@ from tqdm import tqdm
 
 from . import decorators, yaml_params2
 from .guides import init_guide
-from .utils import load_param_store
 from .conlearn import ConLearn
 
 ######################
@@ -257,12 +256,16 @@ def infer_CS(
     cond_model,
     guide_conf,
     guidefile,
-    n_steps,
+    n_wake,
+    n_sleep,
+    gen_samples = True,
+    n_rounds = 1,
+    n_simulate = 1000,
+    sleep_batch_size = 3,
+    wake_batch_size = 1,
     lr=1e-3,
     n_write=300,
     device="cpu",
-    n_particles=1,
-    conv_th=0.0,
     verbose=True,
 ):
     """Contrastive inference.
@@ -287,12 +290,21 @@ def infer_CS(
     """
 
     # Initialize VI model and guide
-    guide = init_guide(cond_model, guide_conf, guidefile=guidefile, device=device)
+    guide = init_guide(cond_model, guide_conf, guidefile=guidefile, device=device, with_observations = True)
 
     optimizer = Adam({"lr": lr, "amsgrad": False, "weight_decay": 0.0})
 
-    conlearn= ConLearn(cond_model, guide, optimizer, site_names = ["model/slope", "model/offset"])
-    conlearn.simulate(1000, replace = True)
+    site_names = guide_conf['sleep_sites']
+
+    conlearn= ConLearn(cond_model, guide, optimizer, training_batch_size = sleep_batch_size, site_names = site_names)
+
+    # - Simulate from full model only when guide does not exist
+
+    wake_guide = pyro.poutine.block(guide, hide = site_names)
+    wake_cond_model = pyro.poutine.block(cond_model, hide = site_names)
+
+    elbo_loss = Trace_ELBO(num_particles=wake_batch_size)
+    svi = SVI(wake_cond_model, wake_guide, optimizer, loss=elbo_loss)
 
     if verbose:
         print()
@@ -308,29 +320,45 @@ def infer_CS(
             print(name + ": " + str(value))
         print()
 
-    print("################################")
-    print("# Optimizing. Hang tight. #")
-    print("################################")
-    losses = []
-    with tqdm(total=n_steps) as t:
-        for i in range(n_steps):
-            if i % n_write == 0:
-                pyro.get_param_store().save(guidefile)
+    print("###################")
+    print("# Wake and Sleep. #")
+    print("###################")
 
-            loss = conlearn.step()
-            losses.append(loss)
-            minloss = min(losses)
-            t.postfix = "loss=%.3f (%.3f)" % (loss, minloss)
-            t.update()
+    sleep_losses = []
+    wake_losses = []
 
-            if len(losses) > 100:
-                dl = (np.mean(losses[-100:-80]) - np.mean(losses[-20:])) / 80
-                if conv_th > 0.0 and dl < conv_th:
-                    print(
-                        "Convergence criterion reached: d_loss/d_step < %.3e" % conv_th
-                    )
-                    break
-            # print(np.mean(losses[-500:]))
+    # Rounds
+    for r in range(n_rounds):
+        print("\nRound %i:"%r) 
+
+        # Wake phase
+        with tqdm(total=n_wake, desc='Wake') as t:
+            for i in range(n_wake):
+                if (i+1) % n_write == 0:
+                    pyro.get_param_store().save(guidefile)
+
+                loss = svi.step()
+
+                wake_losses.append(loss)
+                minloss = min(wake_losses)
+                t.postfix = "loss=%.3f (%.3f)" % (loss, minloss)
+                t.update()
+
+        # Sleep phase
+        if n_sleep > 0:
+            conlearn.simulate(n_simulate, replace = True, gen_samples = gen_samples)
+            gen_samples = False  # Only in first round
+
+        with tqdm(total=n_sleep, desc='Sleep') as t:
+            for i in range(n_sleep):
+                if (i+1) % n_write == 0:
+                    pyro.get_param_store().save(guidefile)
+
+                loss = conlearn.step()
+                sleep_losses.append(loss)
+                minloss = min(sleep_losses)
+                t.postfix = "loss=%.3f (%.3f)" % (loss, minloss)
+                t.update()
 
     if verbose:
         print()
@@ -514,7 +542,9 @@ def cli(ctx, device, yamlfile):
 
 
 @cli.command()
-@click.option("--n_steps", default=1000)
+@click.option("--n_wake", default=0)
+@click.option("--n_sleep", default=0)
+@click.option("--n_rounds", default=1, help="Number of rounds (default 1).")
 @click.option(
     "--guidefile", default=None, help="Guide filename (default YAML.guide.pt."
 )
@@ -523,14 +553,22 @@ def cli(ctx, device, yamlfile):
     "--n_write", default=200, help="Steps after which guide is written (default 200)."
 )
 @click.option(
-    "--n_particles", default=1, help="Particles used in optimization step (default 1)."
+    "--n_wake_particles", default=1, help="Particles used in wake step (default 1)."
 )
-@click.option("--conv_th", default=0.0, help="Convergence threshold (default 0).")
+@click.option(
+    "--n_sleep_particles", default=3, help="Particles used in sleep step (default 3)."
+)
+@click.option(
+    "--n_simulate", default=1000, help="Number of simulations used in sleep phase (default 1000)."
+)
+@click.option(
+    "--gen_samples/--no-gen_samples", default=True, help="Sample first simulations from generative model (default True)"
+)
 @click.option(
     "--verbose/--no-verbose", default=False, help="Print more messages (default False)"
 )
 @click.pass_context
-def learn(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th, verbose):
+def wakesleep(ctx, n_wake, n_sleep, n_rounds, guidefile, lr, n_write, n_wake_particles, n_sleep_particles, n_simulate, gen_samples, verbose):
     """Parameter inference with contrastive learning."""
     if guidefile is None:
         guidefile = ctx.obj["default_guidefile"]
@@ -545,12 +583,16 @@ def learn(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th, verbose):
         cond_model,
         guide_conf,
         guidefile,
-        n_steps,
+        n_wake,
+        n_sleep,
+        gen_samples=gen_samples,
+        n_rounds=n_rounds,
+        n_simulate=n_simulate,
+        sleep_batch_size=n_sleep_particles,
+        wake_batch_size=n_wake_particles,
         device=device,
         lr=lr,
         n_write=n_write,
-        n_particles=n_particles,
-        conv_th=conv_th,
         verbose=verbose,
     )
 
@@ -660,7 +702,7 @@ def ppd(ctx, guidefile, ppdfile, n_samples):
         yaml_config["conditioning"], model, device=device
     )
     guide_conf = yaml_config["guide"]
-    my_guide = init_guide(cond_model, guide_conf, guidefile=guidefile, device=device)
+    my_guide = init_guide(cond_model, guide_conf, with_observations = True, guidefile=guidefile, device=device)
     save_posterior_predictive(model, my_guide, ppdfile, N=n_samples)
 
 
