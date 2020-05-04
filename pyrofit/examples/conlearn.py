@@ -17,7 +17,13 @@ class Model:
 
     def __call__(self, offset:Yaml, slope:Yaml, observations = {}, truth = {}):
         sigma = 0.1
-        pyro.sample("x", dist.Normal(offset + slope*self.grid, sigma))
+
+        # FIXME: This is an annoying hack to avoid propagating gradients from
+        # p(x|z) back to the sleep phase parameters while wake.  Needs to be
+        # solved differently.
+        slope = slope.detach_()
+
+        x = pyro.sample("x", dist.Normal(offset + slope*self.grid, sigma))
 
 
 class ConLearnGuide(PyrofitGuide, nn.Module):
@@ -37,7 +43,7 @@ class ConLearnGuide(PyrofitGuide, nn.Module):
 
         z_scale = torch.exp(pyro.param("guide_z_scale", torch.zeros(2)))
         z_loc = pyro.param("guide_z_loc", torch.zeros(1))
-        #print(z_scale, z_loc[0], x[0])
+        print(z_scale, z_loc[0], x[0])
 
         offset = pyro.sample("model/offset", dist.Normal(z_loc[0], z_scale[0]))
         slope = pyro.sample("model/slope", dist.Normal(x[0], z_scale[1]))
