@@ -55,6 +55,7 @@ class RenyiELBO(ELBO):
                  max_plate_nesting=float('inf'),
                  max_iarange_nesting=None,  # DEPRECATED
                  vectorize_particles=False,
+                 block_names = [],
                  strict_enumeration_warning=True):
         if max_iarange_nesting is not None:
             warnings.warn("max_iarange_nesting is deprecated; use max_plate_nesting instead",
@@ -65,6 +66,7 @@ class RenyiELBO(ELBO):
             raise ValueError("The order alpha should not be equal to 1. Please use Trace_ELBO class"
                              "for the case alpha = 1.")
         self.alpha = alpha
+        self.block_names = block_names
         super().__init__(num_particles=num_particles,
                          max_plate_nesting=max_plate_nesting,
                          vectorize_particles=vectorize_particles,
@@ -99,11 +101,15 @@ class RenyiELBO(ELBO):
 
             # compute elbo
             for name, site in model_trace.nodes.items():
+                if name in self.block_names:
+                    continue
                 if site["type"] == "sample":
                     log_prob_sum = torch_sum(site["log_prob"], sum_dims)
                     elbo_particle = elbo_particle + log_prob_sum
 
             for name, site in guide_trace.nodes.items():
+                if name in self.block_names:
+                    continue
                 if site["type"] == "sample":
                     log_prob, score_function_term, entropy_term = site["score_parts"]
                     log_prob_sum = torch_sum(site["log_prob"], sum_dims)
@@ -145,12 +151,16 @@ class RenyiELBO(ELBO):
 
             # compute elbo and surrogate elbo
             for name, site in model_trace.nodes.items():
+                if name in self.block_names:
+                    continue
                 if site["type"] == "sample":
                     log_prob_sum = torch_sum(site["log_prob"], sum_dims)
                     elbo_particle = elbo_particle + log_prob_sum.detach()
                     surrogate_elbo_particle = surrogate_elbo_particle + log_prob_sum
 
             for name, site in guide_trace.nodes.items():
+                if name in self.block_names:
+                    continue
                 if site["type"] == "sample":
                     log_prob, score_function_term, entropy_term = site["score_parts"]
                     log_prob_sum = torch_sum(site["log_prob"], sum_dims)

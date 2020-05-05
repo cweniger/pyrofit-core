@@ -11,9 +11,19 @@ from torch.distributions import constraints
 from pyro.distributions.util import eye_like
 from .utils import load_param_store, tensor2device
 
+#from contextlib import nullcontext  # requires python 3.7
+class nullcontext:
+    def __init__(self): pass
+    def __enter__(self): pass
+    def __exit__(self, *exc): pass
+
 class PyrofitGuide(EasyGuide):
     def __init__(self, model):
         super(PyrofitGuide, self).__init__(model)
+        self.default_kwargs = {}
+
+        # FIXME: Specific for wake sleep
+        self._sweet_dreams = True
 
     def init(self, site):
         """Return constrained mean or explicit init value."""
@@ -61,6 +71,45 @@ class PyrofitGuide(EasyGuide):
             return z_con, model_zs
 
         return sampler, z_con_init
+
+    def forward(self, *args, **kwargs):
+        """
+        Runs the guide. This is typically used by inference algorithms.
+        """
+        if self.prototype_trace is None:
+            self._setup_prototype(*args, **kwargs)
+
+        my_kwargs = self.default_kwargs.copy()
+        my_kwargs.update(kwargs)
+
+        result = self.guide(*args, **my_kwargs)
+        self.plates.clear()
+        return result
+
+
+        # FIXME: Specific for wake sleep. Move somewhere else?
+
+    def sleep(self):
+        self._sweet_dreams = True
+
+    def wake(self):
+        self._sweet_dreams = False
+
+    def sleep_grad(self):
+        """Allow gradients during sleep phase."""
+        if not self._sweet_dreams:
+            return torch.no_grad()
+        else:
+            return nullcontext()
+
+    def wake_grad(self):
+        """Allow gradients during wake phase."""
+        if self._sweet_dreams:
+            return torch.no_grad()
+        else:
+            return nullcontext()
+
+
 
 class MAPGuide(PyrofitGuide):
     """Delta guide without variable concatenation."""
@@ -313,7 +362,7 @@ def get_observations_from_cond_model(cond_model):
         observations[name] = value
     return observations
 
-def init_guide(cond_model, guide_conf, guidefile = None, with_observations = False, device = 'cpu'):
+def init_guide(cond_model, guide_conf, guidefile = None, default_observations = False, device = 'cpu'):
     guidetype = guide_conf['type']
     if guidefile is not None:
         load_param_store(guidefile, device = device)
@@ -324,18 +373,17 @@ def init_guide(cond_model, guide_conf, guidefile = None, with_observations = Fal
 
     ### Instantiate guide
     guide = guide_cls(cond_model, guide_conf)
-    observations = get_observations_from_cond_model(cond_model)
+
+    if default_observations:
+        observations = get_observations_from_cond_model(cond_model)
+        guide.default_kwargs['observations'] = observations
+
+    return guide
 
     ### Wrap guide
     # We hide the first argument (unconstrained parameters) from the main code
-    # Furthermore, we provide default observations if requested.
-
-    def wrapped_guide(*args, **kwargs):
-        if with_observations and 'observations' not in kwargs.keys():
-            kwargs['observations'] = observations
-        return guide(*args, **kwargs)[1]
-
-    return wrapped_guide
+    #return lambda *args, **kwargs: guide(*args, **kwargs)[1]
+    #return wrapped_guide
 
 
 

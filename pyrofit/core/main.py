@@ -26,7 +26,7 @@ from pyro.contrib.autoguide import (
     AutoMultivariateNormal,
     init_to_sample,
 )
-from pyro.infer import SVI, JitTrace_ELBO, Trace_ELBO
+from pyro.infer import SVI, Trace_ELBO, RenyiELBO
 from pyro.infer.mcmc import MCMC, NUTS, util
 from pyro.optim import SGD, Adam
 from tqdm import tqdm
@@ -34,6 +34,10 @@ from tqdm import tqdm
 from . import decorators, yaml_params2
 from .guides import init_guide
 from .conlearn import ConLearn
+
+# Modified ELBOs  (deprecated)
+#from .trace_elbo import Trace_ELBO
+#from .renyi_elbo import RenyiELBO
 
 ######################
 # Auxilliary functions
@@ -263,7 +267,9 @@ def infer_CS(
     n_simulate = 1000,
     sleep_batch_size = 3,
     wake_batch_size = 1,
-    lr=1e-3,
+    alpha = 1.,
+    lr_wake=1e-3,
+    lr_sleep=1e-3,
     n_write=300,
     device="cpu",
     verbose=True,
@@ -290,21 +296,22 @@ def infer_CS(
     """
 
     # Initialize VI model and guide
-    guide = init_guide(cond_model, guide_conf, guidefile=guidefile, device=device, with_observations = True)
+    guide = init_guide(cond_model, guide_conf, guidefile=guidefile, device=device, default_observations = True)
 
-    optimizer = Adam({"lr": lr, "amsgrad": False, "weight_decay": 0.0})
+    wake_optimizer = Adam({"lr": lr_wake, "amsgrad": False, "weight_decay": 0.0})
+    sleep_optimizer = Adam({"lr": lr_sleep, "amsgrad": False, "weight_decay": 0.0})
 
     site_names = guide_conf['sleep_sites']
 
-    conlearn= ConLearn(cond_model, guide, optimizer, training_batch_size = sleep_batch_size, site_names = site_names)
+    conlearn= ConLearn(cond_model, guide, sleep_optimizer, training_batch_size = sleep_batch_size, site_names = site_names)
 
-    # - Simulate from full model only when guide does not exist
+    # Default is standard ELBO loss
+    if alpha == 1.:
+        wake_loss = Trace_ELBO(num_particles=wake_batch_size)
+    else:
+        wake_loss = RenyiELBO(alpha=alpha, num_particles=wake_batch_size)
 
-    wake_guide = pyro.poutine.block(guide, hide = site_names)
-    wake_cond_model = pyro.poutine.block(cond_model, hide = site_names)
-
-    elbo_loss = Trace_ELBO(num_particles=wake_batch_size)
-    svi = SVI(wake_cond_model, wake_guide, optimizer, loss=elbo_loss)
+    svi = SVI(cond_model, guide, wake_optimizer, loss=wake_loss)
 
     if verbose:
         print()
@@ -333,6 +340,7 @@ def infer_CS(
 
         # Wake phase
         with tqdm(total=n_wake, desc='Wake') as t:
+            guide.wake()
             for i in range(n_wake):
                 if (i+1) % n_write == 0:
                     pyro.get_param_store().save(guidefile)
@@ -350,6 +358,7 @@ def infer_CS(
             gen_samples = False  # Only in first round
 
         with tqdm(total=n_sleep, desc='Sleep') as t:
+            guide.sleep()
             for i in range(n_sleep):
                 if (i+1) % n_write == 0:
                     pyro.get_param_store().save(guidefile)
@@ -380,14 +389,16 @@ def infer_CS(
 def save_posterior_predictive(model, guide, filename, N=300):
     if N == 1:
         mock = {}
-        trace = poutine.trace(poutine.condition(model, data=guide())).get_trace()
+        guide_trace = poutine.trace(guide).get_trace()
+        trace = poutine.trace(poutine.condition(model, data=guide_trace)).get_trace()
         for tag in trace:
             if trace.nodes[tag]["type"] == "sample":
                 mock[tag] = trace.nodes[tag]["value"].detach().cpu().numpy()
     else:
         mock = defaultdict(list)
         for i in range(N):
-            trace = poutine.trace(poutine.condition(model, data=guide())).get_trace()
+            guide_trace = poutine.trace(guide).get_trace()
+            trace = poutine.trace(poutine.condition(model, data=guide_trace)).get_trace()
             for tag in trace:
                 if trace.nodes[tag]["type"] == "sample":
                     mock[tag].append(trace.nodes[tag]["value"].detach().cpu().numpy())
@@ -548,7 +559,8 @@ def cli(ctx, device, yamlfile):
 @click.option(
     "--guidefile", default=None, help="Guide filename (default YAML.guide.pt."
 )
-@click.option("--lr", default=1e-3, help="Learning rate (default 1e-3).")
+@click.option("--lr_wake", default=1e-3, help="Wake learning rate (default 1e-3).")
+@click.option("--lr_sleep", default=1e-3, help="Sleep learning rate (default 1e-3).")
 @click.option(
     "--n_write", default=200, help="Steps after which guide is written (default 200)."
 )
@@ -562,13 +574,16 @@ def cli(ctx, device, yamlfile):
     "--n_simulate", default=1000, help="Number of simulations used in sleep phase (default 1000)."
 )
 @click.option(
+    "--alpha", default=1., help="The order of alpha-divergence (default 1., which corresponds to ELBO)."
+)
+@click.option(
     "--gen_samples/--no-gen_samples", default=True, help="Sample first simulations from generative model (default True)"
 )
 @click.option(
     "--verbose/--no-verbose", default=False, help="Print more messages (default False)"
 )
 @click.pass_context
-def wakesleep(ctx, n_wake, n_sleep, n_rounds, guidefile, lr, n_write, n_wake_particles, n_sleep_particles, n_simulate, gen_samples, verbose):
+def wakesleep(ctx, n_wake, n_sleep, n_rounds, guidefile, lr_wake, lr_sleep, n_write, n_wake_particles, n_sleep_particles, n_simulate, alpha, gen_samples, verbose):
     """Parameter inference with contrastive learning."""
     if guidefile is None:
         guidefile = ctx.obj["default_guidefile"]
@@ -591,9 +606,11 @@ def wakesleep(ctx, n_wake, n_sleep, n_rounds, guidefile, lr, n_write, n_wake_par
         sleep_batch_size=n_sleep_particles,
         wake_batch_size=n_wake_particles,
         device=device,
-        lr=lr,
+        lr_wake=lr_wake,
+        lr_sleep=lr_sleep,
         n_write=n_write,
         verbose=verbose,
+        alpha=alpha
     )
 
 
@@ -702,7 +719,7 @@ def ppd(ctx, guidefile, ppdfile, n_samples):
         yaml_config["conditioning"], model, device=device
     )
     guide_conf = yaml_config["guide"]
-    my_guide = init_guide(cond_model, guide_conf, with_observations = True, guidefile=guidefile, device=device)
+    my_guide = init_guide(cond_model, guide_conf, default_observations = True, guidefile=guidefile, device=device)
     save_posterior_predictive(model, my_guide, ppdfile, N=n_samples)
 
 
