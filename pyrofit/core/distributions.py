@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from math import pi, log, gamma
+import typing
 
 import numpy as np
 import torch
@@ -15,7 +16,7 @@ import pyro
 import pyro.distributions as dist
 from torch.distributions import constraints
 
-from pyrofit.core.utils import kNN_d2, kNN, broadcast_index, moveaxis
+from .utils import kNN_d2, kNN, broadcast_index, moveaxis
 
 try:
     from torchinterp1d import Interp1d
@@ -166,7 +167,7 @@ class GaussianSampler(InverseTransformSampling):
             torch.tensor(1., device=self.device)
         ).expand(self.batch_shape)
 
-    def draw(self, name: str, sample_shape: torch.Size):
+    def draw(self, name: str, sample_shape: typing.Union[torch.Size, typing.Tuple[int]]):
         return pyro.sample(name, self.standard_normal.expand_by(sample_shape))
 
     def transform_sample(self, sample):
@@ -175,7 +176,7 @@ class GaussianSampler(InverseTransformSampling):
     def inverse_transform(self, values):
         return self.standard_normal.icdf(moveaxis(self.cdf(values.reshape(-1, values.shape[-1])).reshape(*self.standard_normal.batch_shape, values.shape[-1]), -1, 0))
 
-    def sample(self, name: str, sample_shape: torch.Size):
+    def sample(self, name: str, sample_shape: typing.Union[torch.Size, typing.Tuple[int]]):
         return self.transform_sample(self.draw(name, sample_shape))
 
 
