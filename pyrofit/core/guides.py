@@ -117,7 +117,7 @@ class MAPGuide(PyrofitGuide):
         super(MAPGuide, self).__init__(model)
         self.mygroup = None
 
-    def guide(self):
+    def guide(self, *arg, **kwargs):
         # Initialize guide if necessary
         if self.mygroup is None:
             # Dummy group formation to collect all site names
@@ -139,7 +139,7 @@ class DeltaGuide(PyrofitGuide):
         self.guide_conf = guide_conf
         self.prefix = "" if prefix is None else prefix+"/"
 
-    def guide(self):
+    def guide(self, *args, **kwargs):
         if self.mygroup is None:
             self.mygroup, self.z_init_loc = self._get_group(self.guide_conf['match'])
         z_loc = pyro.param(self.prefix+"guide_z_loc", self.z_init_loc)
