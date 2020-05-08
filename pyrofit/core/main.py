@@ -161,6 +161,7 @@ def infer_fit(
     guide_conf,
     guidefile,
     n_steps,
+    min_steps=1000,
     lr=1e-3,
     n_write=300,
     device="cpu",
@@ -229,7 +230,7 @@ def infer_fit(
             t.postfix = "loss=%.3f (%.3f)" % (loss, minloss)
             t.update()
 
-            if len(losses) > 100:
+            if len(losses) > min_steps and len(losses) > 100:
                 dl = (np.mean(losses[-100:-80]) - np.mean(losses[-20:])) / 80
                 if conv_th > 0.0 and dl < conv_th:
                     print(
@@ -619,6 +620,7 @@ def wakesleep(ctx, n_wake, n_sleep, n_rounds, guidefile, lr_wake, lr_sleep, n_wr
 @click.option(
     "--guidefile", default=None, help="Guide filename (default YAML.guide.pt."
 )
+@click.option("--min_steps", default=0, help="Do at least this number of steps.")
 @click.option("--lr", default=1e-3, help="Learning rate (default 1e-3).")
 @click.option(
     "--n_write", default=200, help="Steps after which guide is written (default 200)."
@@ -631,7 +633,7 @@ def wakesleep(ctx, n_wake, n_sleep, n_rounds, guidefile, lr_wake, lr_sleep, n_wr
     "--verbose/--no-verbose", default=False, help="Print more messages (default False)"
 )
 @click.pass_context
-def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th, verbose):
+def fit(ctx, n_steps, guidefile, min_steps, lr, n_write, n_particles, conv_th, verbose):
     """Parameter inference with variational methods."""
     if guidefile is None:
         guidefile = ctx.obj["default_guidefile"]
@@ -648,6 +650,7 @@ def fit(ctx, n_steps, guidefile, lr, n_write, n_particles, conv_th, verbose):
         guidefile,
         n_steps,
         device=device,
+        min_steps=min_steps,
         lr=lr,
         n_write=n_write,
         n_particles=n_particles,
