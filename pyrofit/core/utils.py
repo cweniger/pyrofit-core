@@ -10,6 +10,7 @@ from torch.distributions.transforms import ExpTransform
 import pyro
 from pyro import distributions as dist
 
+
 def onehot3d(x, weights = None, shape = torch.Size()):
     r"""Returns hot 3-dim tensor.
     
@@ -35,7 +36,10 @@ def onehot3d(x, weights = None, shape = torch.Size()):
         weights = torch.ones(x.shape[0], device = device)
     N = torch.tensor(shape).to(device)
     M = torch.zeros(shape, device = device)
-    x = torch.where(x<torch.zeros(1, device = device), torch.zeros(1, device = device), torch.where(x >= N.float()-1, N.float()-1.001, x))
+    x = torch.where(x<torch.zeros(1, device = device),
+                    torch.zeros(1, device = device),
+                    torch.where(x >= N.float()-1,
+                                N.float()-1.001, x))
     i = x.long()  # Obtain index tensor
     w = x-i.float()  # Obtain linear weights
     ifl = i[:,0]*N[2]*N[1]+i[:,1]*N[2]+i[:,2]
@@ -321,6 +325,10 @@ def plot_cov_ellipse(cov, pos, nstd=2, ax=None, **kwargs):
 
 def acosh(x):
     return torch.log(x + torch.sqrt(x**2 - 1.))
+
+
+def atanh(x):
+    return 0.5 * (torch.log(1. + x) - torch.log(1. - x))
 
 
 def interp1d(xmin, xmax, n, log_x=False, log_y=False, device=None):
@@ -650,10 +658,8 @@ def get_components(yaml_entries, type_mapping, device='cpu'):
         instances.append(instance)
     return instances
 
-def observe(name, value):
-    # FIXME: Get device information from value
-    device = 'cpu'
-    pyro.sample(name, dist.Delta(value, log_density = torch.tensor(0., device = device)), obs = value)
+def observe(name, value, log_prob=None):
+    pyro.sample(name, dist.Delta(value, log_density=torch.zeros_like(value) if log_prob is None else log_prob), obs=value)
 
 
 def load_param_store(paramfile, device = 'cpu'):
@@ -672,3 +678,246 @@ def tensor2device(t):
     else:
         return 'cpu'
 
+
+# dev_kk utilities
+# ----------------
+import itertools
+
+
+def moveaxis(tensor, src, dst):
+    l = len(tensor.shape)
+    src, dst = src%l, dst%l
+    dims = list(range(l))
+    dims.remove(src)
+    dims.insert(dst, src)
+    return tensor.permute(dims)
+
+
+def broadcast_except(*tensors, dim=-1):
+    shape = torch.broadcast_tensors(*[t.select(dim, 0) for t in tensors])[0].shape
+    return [t.expand(*shape[:t.ndim+dim+1], t.shape[dim], *shape[t.ndim+dim+1:]) for t in tensors]
+
+
+def num_to_tensor(*args, device=None):
+    return [torch.as_tensor(a, dtype=torch.get_default_dtype(), device=device)
+            for a in args]
+    # return [a.to(device) if torch.is_tensor(a) else torch.tensor(a, device=device) for a in args]
+
+
+def onehotnd(p: torch.tensor, ranges: torch.Size):
+    ndim = p.shape[-1]
+    onehot = torch.zeros(p.shape[:-2] + ranges, device=p.device)
+
+    onehot_flat = onehot.reshape((-1,) + onehot.shape[-ndim:])
+    p_flat = p.reshape((-1,) + p.shape[-2:])
+    index = p_flat.long()
+
+    offsets = torch.tensor(list(itertools.product(*([[0, 1]] * ndim))),
+                           device=p.device)
+
+    for offset in offsets:
+        i = index + offset
+        onehot_flat.index_put_(((torch.arange(onehot_flat.shape[0], device=p.device)[:, None],)
+                                + tuple(i.permute(-1, 0, 1))),
+                               (1. - (p_flat - i).abs()).prod(-1),
+                               accumulate=True)
+
+    return onehot
+
+
+class ConvNDFFT:
+    def __init__(self, kernel: torch.tensor, ndim: int):
+        self.ndim = ndim
+        self.kernel = kernel.roll((torch.tensor(kernel.shape[-ndim:]) // 2).tolist(),
+                                  list(range(-ndim, 0)))
+        self.kernel_fft = torch.rfft(self.kernel, self.ndim, onesided=False)
+
+    def __call__(self, signal, sumdims=None):
+        torch.cuda.empty_cache()
+        signal_fft = torch.rfft(signal, self.ndim, onesided=False)
+        res = torch.empty_like(torch.broadcast_tensors(signal_fft, self.kernel_fft)[0])
+        res[..., 0] = (signal_fft[..., 0] * self.kernel_fft[..., 0]
+                       - signal_fft[..., 1] * self.kernel_fft[..., 1])
+        res[..., 1] = (signal_fft[..., 0] * self.kernel_fft[..., 1]
+                       + signal_fft[..., 1] * self.kernel_fft[..., 0])
+        res = torch.irfft(res, self.ndim, onesided=False)
+
+        return res if sumdims is None else res.sum(sumdims)
+
+
+class TorchInterpNd:
+    """Curently only works in 2D and 3D because of limitations in torch's grid_sample"""
+    def __init__(self, data, *ranges):
+        self.ranges = torch.tensor(ranges, dtype=torch.get_default_dtype(), device=data.device)
+        self.extents = self.ranges[:, 1] - self.ranges[:, 0]
+        self.ndim = len(ranges)
+
+        self.data = data.unsqueeze(0) if data.ndim == self.ndim else data
+        assert self.data.ndim == self.ndim + 1
+        self.channels = self.data.shape[0]
+
+    def __call__(self, *p_or_args):
+        p = p_or_args if len(p_or_args) == 1 else torch.stack(torch.broadcast_tensors(*p_or_args), -1)
+        assert p.shape[-1] == self.ndim
+
+        if p.ndim == 1:
+            p = p.unsqueeze(0)  # introduce batch dim if not present
+
+        # return p
+
+        p = 2*(p - self.ranges[:, 0]) / self.extents - 1
+
+        # -> (N=batch dims, channels, "image" dims..., ndim)
+        p_flat = p.reshape(-1, *((1,)*self.ndim), self.ndim)
+        data_flat = self.data.unsqueeze(0).expand(p_flat.shape[0], *self.data.shape)
+        res = func.grid_sample(data_flat, p_flat, align_corners=True)
+        return res.reshape(*p.shape[:-1], self.channels)
+
+
+from math import pi
+from pykeops.torch import LazyTensor
+import typing
+
+
+def d2_kernel(x: torch.Tensor, y: torch.Tensor) -> LazyTensor:
+    """
+    Return a keops.LazyTensor of squared distances between x and y.
+
+    Parameters
+    ----------
+    x: torch.Tensor: Size(batch dims..., N, ndim)
+    y: torch.Tensor: Size(batch dims..., M, ndim)
+
+    Returns
+    -------
+        torch.Tensor: Size(batch_dims..., N, M)
+    Return d2 such that d2[..., i, j] = sqdist(x[..., i], y[..., j]).
+    """
+    return LazyTensor.sqdist(
+        LazyTensor(x.unsqueeze(-2)),
+        LazyTensor(y.unsqueeze(-3))
+    )
+
+
+def rbf_kernel(x: torch.Tensor, y: torch.Tensor, sigma2: torch.Tensor,
+               return_s: bool=False) -> typing.Union[torch.Tensor, typing.Tuple[torch.Tensor]]:
+    """
+    Return a Gaussian kernel between x and y with a (possibly batched)
+    lengthscale sigma, normalized to unit variance.
+
+    Parameters
+    ----------
+    x: torch.Tensor: Size(batch_dims..., N, ndim)
+    y: torch.tesnor: Size(batch_dims..., M, ndim)
+    sigma2: torch.Tensor
+        Shape must be alignable to the left with the dimensions of x:
+        sigma.shape == x.shape[:sigma.ndim] or broadcastable
+    return_s: bool
+        whether to return properly broadcasted 0.5 / sigma**2
+
+    Returns
+    -------
+        torch.Tensor: Size(batch_dims..., N, M)
+    """
+    # Align sigma to leftmost dims of x, and add a dim for y
+    s = (0.5 / sigma2).reshape(*sigma2.shape, *((1,) * (x.ndim + 1 - sigma2.ndim)))
+    ret = (- d2_kernel(x, y) * s).exp()
+    return ret if not return_s else (ret, s)
+
+
+def gaussian_kernel(x: torch.Tensor, y: torch.Tensor, sigma2: torch.Tensor) -> LazyTensor:
+    """
+    Return a Gaussian kernel between x and y with a (possibly batched)
+    lengthscale sigma, normalized such that integrating over x would give one.
+
+    Parameters
+    ----------
+    x: torch.Tensor: Size(batch_dims..., N, ndim)
+    y: torch.tesnor: Size(batch_dims..., M, ndim)
+    sigma2: torch.Tensor
+        Shape must be alignable to the left with the dimensions of x:
+        sigma.shape == x.shape[:sigma.ndim] or broadcastable
+
+    Returns
+    -------
+        torch.Tensor: Size(batch_dims..., N, M)
+    """
+    ret, s = rbf_kernel(x, y, sigma2, True)
+    return ret * (s/pi)**(x.shape[-1]/2)
+
+
+def kNN(x: torch.Tensor, y: torch.Tensor, k: int) -> torch.Tensor:
+    """
+    Get k nearest neighbours using keops.
+
+    Parameters
+    ----------
+    x: torch.Tensor: Size(batch dims..., N, ndim)
+    y: torch.Tensor: Size(batch dims..., M, ndim)
+    k: int
+
+    Returns
+    -------
+        torch.Tensor(dtype=int): Size(batch_dims..., N, K)
+    Returns idx such that y[a, b..., idx[a, b..., i]] is
+    an array of the K points in y[a, b...] nearest to x[a, b..., i], where
+    a, b... are indices into the batch dimensions. Note that if x == y, then
+    idx[..., i][0] == i, i.e. if the two sets of points are the same, the
+    nearest neighbour to each point is the point itself.
+    """
+    return LazyTensor.sqdist(
+        LazyTensor(x.unsqueeze(-2)),
+        LazyTensor(y.unsqueeze(-3))
+    ).argKmin(k, dim=len(x.shape) - 1)  # reduce along x dimension
+
+
+def broadcast_index(x, i):
+    """
+    Return x[i], but take into account batch and vector dimensions. Used in
+    conjunction with kNN.
+
+    Parameters
+    ----------
+    x: torch.Tensor: Size(batch_dims..., N, ndim)
+    i: torch.Tensor: Size(batch_dims..., M, k)
+
+    Returns
+    -------
+        torch.Tensor: Size(batch_dims..., k, ndim)
+    Returns xi such that xi[a, b..., m, n] = x[a, b..., i[a, b..., m, n]], where
+    a, b... are indices into the batch dimensions.
+    """
+    # Get the nearest neighbours by exploiting broadcasting of arange() to
+    # index correctly into the batch dimensions. Trust me: it works.
+    i = i.expand(*x.shape[:-2], *i.shape[-2:])
+    return x.__getitem__([torch.arange(i.shape[j]).reshape(tuple(sh))
+                          for j, sh in enumerate(torch.full([len(x.shape) - 2, len(i.shape)], 1, dtype=int).fill_diagonal_(-1))] + [i])
+
+
+def kNN_d2(x: torch.Tensor, y: torch.Tensor, k: int,
+           x0: torch.Tensor=None, y0: torch.Tensor=None) -> torch.Tensor:
+    """
+    Get squared distances to k nearest neighbours using keops.
+
+    Parameters
+    ----------
+    x: torch.Tensor: Size(batch dims..., M, ndim)
+    y: torch.Tensor: Size(batch dims..., N, ndim)
+    k: int
+    x0: torch.Tensor: Size(batch dims..., M, ndim)
+    y0: torch.Tensor: Size(batch dims..., N, ndim)
+
+    Returns
+    -------
+    Returns d2 such that d2[a, b..., i, j] is the distance squared between
+    x[a, b..., i] and its j-th nearest neighbour among y[a, b...], where
+    a, b... are indices into the batch dimensions. Note that if x == y, then
+    d2[..., 0] == 0, i.e. if the two point sets are the same, the nearest
+    neighbour to each point is the point itself.
+    If x0, y0 are given, they are used to determine the neighbours.
+    """
+    if x0 is None or y0 is None:
+        x0 = x
+        y0 = y
+
+    return (x.unsqueeze(-2) - broadcast_index(y, kNN(x0, y0, k))).pow(2.).sum(-1)

@@ -68,6 +68,10 @@ def _parse_val(key, val, device="cpu", dtype=torch.float32):
 
         if isinstance(tmp, torch.Tensor):
             return tmp.to(device)
+        elif isinstance(tmp, np.ndarray):
+            if tmp.dtype.kind != 'f' and dtype.is_floating_point:
+                dtype = None  # keep non-float dtypes (useful for masks)
+            return torch.from_numpy(tmp).to(dtype=dtype, device=device)
         else:
             return torch.tensor(tmp, dtype=dtype, device=device)
     except ValueError:
