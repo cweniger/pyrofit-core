@@ -47,6 +47,18 @@ class PyrofitGuide(EasyGuide):
             transform = biject_to(site['fn'].support)
             z.append(transform.inv(constrained_z).reshape(-1))
         z_init = torch.cat(z, 0)
+
+        event_mask = []
+        for site in group.prototype_sites:
+            site_shape = site['fn'].batch_shape + site['fn'].event_shape
+            if isinstance(site['fn'], pyro.distributions.torch_distribution.MaskedDistribution):
+                mask = site['fn']._mask.expand(site_shape).flatten()
+            else:
+                mask = torch.full([site_shape.numel()], True,
+                                  dtype=torch.bool, device=z_init.device)
+            event_mask.append(mask)
+        group.event_mask = torch.cat(event_mask)
+
         return group, z_init
 
     def _get_orig_sampler(self, match = '.*'):
@@ -276,9 +288,9 @@ class DiagonalNormalGuide(PyrofitGuide):
             self.mygroup, self.z_init_loc = self._get_group(self.guide_conf['match'])
             self.z_init_scale = (self.z_init_loc**2)**0.5*0.01 + 0.01
         z_loc = pyro.param(self.prefix+"guide_z_loc", self.z_init_loc)
-        z_scale = pyro.param(self.prefix+"guide_z_scale", self.z_init_scale, constraint = constraints.positive)
+        z_scale = pyro.param(self.prefix+"guide_z_scale", self.z_init_scale, constraint=constraints.positive)
         guide_z, model_zs = self.mygroup.sample(self.prefix+'guide_z',
-                dist.Normal(z_loc, z_scale).to_event(1))
+                dist.Normal(z_loc, z_scale).mask(self.mygroup.event_mask).to_event(1))
         return guide_z, model_zs
 
 class MultivariateNormalGuide(PyrofitGuide):

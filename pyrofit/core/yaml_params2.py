@@ -88,7 +88,8 @@ def _entry2action(key, val, module, device):
         return lambda param: val
     keys = list(val.keys())
     keys.sort()
-    if keys == ["sample"]:
+
+    if 'sample' in keys:
         try:
             fn = eval(val["sample"][0])
         except:
@@ -98,43 +99,76 @@ def _entry2action(key, val, module, device):
                 raise ValueError(f"Could not parse distribution {val['sample'][0]}")
 
         args = [_parse_val(key, x, device=device) for x in val["sample"][1:]]
+        distribution = fn(*args)
 
-        def sampler(param):
-            val = pyro.sample(param, fn(*args))
-            # print("Sampled", param, "with val", val)
-            return val
-
-        return sampler
-        # return lambda param: pyro.sample(param, fn(*args))
-    if keys == ["init", "sample"]:
-        if "init" in val.keys():
-            # TODO: is this ever used anywhere??
+        if 'init' in keys:
             infer = {"init": _parse_val(key, val["init"], device=device)}
-            batch_shape = infer["init"].shape
+            distribution.expand(infer["init"].shape)
         else:
-            infer = None
-            batch_shape = torch.Size([])
+            infer = {}
 
-        try:
-            fn = eval(val["sample"][0])
-        except:
-            try:
-                fn = eval(f"module.{val['sample'][0]}")
-            except:
-                raise ValueError(f"Could not parse distribution {val['sample'][0]}")
+        if 'mask' in keys:
+            distribution = distribution.mask(_parse_val(key, val['mask'], device=device, dtype=torch.bool))
 
-        args = [_parse_val(key, x, device=device) for x in val["sample"][1:]]
+        print(distribution.shape())
 
         def sampler(param):
             obs = None if not FIX_ALL else infer["init"]
             val = pyro.sample(
-                param, fn(*args).expand(batch_shape), infer=infer, obs=obs
+                param, distribution, infer=infer, obs=obs
             )
             # print("Sampled (with 'init')", param, "with val", val)
             return val
 
         return sampler
-        # return lambda param: pyro.sample(param, fn(*args).expand(batch_shape), infer=infer)
+
+    # if keys == ["sample"]:
+    #     try:
+    #         fn = eval(val["sample"][0])
+    #     except:
+    #         try:
+    #             fn = eval(f"module.{val['sample'][0]}")
+    #         except:
+    #             raise ValueError(f"Could not parse distribution {val['sample'][0]}")
+    #
+    #     args = [_parse_val(key, x, device=device) for x in val["sample"][1:]]
+    #
+    #     def sampler(param):
+    #         val = pyro.sample(param, fn(*args))
+    #         # print("Sampled", param, "with val", val)
+    #         return val
+    #
+    #     return sampler
+    #     # return lambda param: pyro.sample(param, fn(*args))
+    # if keys == ["init", "sample"]:
+    #     if "init" in val.keys():
+    #         # TODO: is this ever used anywhere??
+    #         infer = {"init": _parse_val(key, val["init"], device=device)}
+    #         batch_shape = infer["init"].shape
+    #     else:
+    #         infer = None
+    #         batch_shape = torch.Size([])
+    #
+    #     try:
+    #         fn = eval(val["sample"][0])
+    #     except:
+    #         try:
+    #             fn = eval(f"module.{val['sample'][0]}")
+    #         except:
+    #             raise ValueError(f"Could not parse distribution {val['sample'][0]}")
+    #
+    #     args = [_parse_val(key, x, device=device) for x in val["sample"][1:]]
+    #
+    #     def sampler(param):
+    #         obs = None if not FIX_ALL else infer["init"]
+    #         val = pyro.sample(
+    #             param, fn(*args).expand(batch_shape), infer=infer, obs=obs
+    #         )
+    #         # print("Sampled (with 'init')", param, "with val", val)
+    #         return val
+    #
+    #     return sampler
+    #     # return lambda param: pyro.sample(param, fn(*args).expand(batch_shape), infer=infer)
     if keys == ["param"]:
         arg = _parse_val(key, val["param"], device=device)
         return lambda param: pyro.param(param, arg)

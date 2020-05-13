@@ -398,6 +398,13 @@ def save_posterior_predictive(model, guide, filename, N=300):
     else:
         mock = defaultdict(list)
         for i in range(N):
+            # Faster way if we don't need `deterministic` statements.
+            # Literally just samples from the guide.
+            #
+            # for tag, value in guide()[1].items():
+            #     mock[tag].append(value.detach().cpu().numpy())
+            # continue
+
             guide_trace = poutine.trace(guide).get_trace()
             trace = poutine.trace(poutine.condition(model, data=guide_trace)).get_trace()
             for tag in trace:
