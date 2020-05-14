@@ -156,7 +156,7 @@ class DeltaGuide(PyrofitGuide):
             self.mygroup, self.z_init_loc = self._get_group(self.guide_conf['match'])
         z_loc = pyro.param(self.prefix+"guide_z_loc", self.z_init_loc)
         guide_z, model_zs = self.mygroup.sample(self.prefix+'guide_z',
-                dist.Delta(z_loc).to_event(1))
+                dist.Delta(z_loc).mask(self.mygroup.event_mask).to_event(1))
         return guide_z, model_zs
 
 class HammerGuide(PyrofitGuide):
