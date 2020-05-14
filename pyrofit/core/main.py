@@ -249,7 +249,7 @@ def infer_fit(
             print(name + ": " + str(value))
         print()
         print("Guide:")
-        for name, value in guide().items():
+        for name, value in guide()[1].items():
             print(name + ": " + str(value))
         print()
 
@@ -324,7 +324,7 @@ def infer_CS(
             print(name + ": " + str(value))
         print()
         print("Guide:")
-        for name, value in guide().items():
+        for name, value in guide()[1].items():
             print(name + ": " + str(value))
         print()
 
@@ -380,7 +380,7 @@ def infer_CS(
             print(name + ": " + str(value))
         print()
         print("Guide:")
-        for name, value in guide().items():
+        for name, value in guide()[1].items():
             print(name + ": " + str(value))
         print()
 
