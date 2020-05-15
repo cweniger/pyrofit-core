@@ -693,9 +693,13 @@ def moveaxis(tensor, src, dst):
     return tensor.permute(dims)
 
 
-def broadcast_except(*tensors, dim=-1):
+def broadcast_except(*tensors: torch.Tensor, dim=-1):
     shape = torch.broadcast_tensors(*[t.select(dim, 0) for t in tensors])[0].shape
     return [t.expand(*shape[:t.ndim+dim+1], t.shape[dim], *shape[t.ndim+dim+1:]) for t in tensors]
+
+
+def pad_dims(*tensors: torch.Tensor, ndim: int):
+    return [t.reshape((1,)*(ndim-t.ndim) + t.shape) for t in tensors]
 
 
 def num_to_tensor(*args, device=None):
