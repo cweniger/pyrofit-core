@@ -698,7 +698,9 @@ def broadcast_except(*tensors: torch.Tensor, dim=-1):
     return [t.expand(*shape[:t.ndim+dim+1], t.shape[dim], *shape[t.ndim+dim+1:]) for t in tensors]
 
 
-def pad_dims(*tensors: torch.Tensor, ndim: int):
+def pad_dims(*tensors: torch.Tensor, ndim: int = None):
+    if ndim is None:
+        ndim = max([t.ndim for t in tensors])
     return [t.reshape((1,)*(ndim-t.ndim) + t.shape) for t in tensors]
 
 
