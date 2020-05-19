@@ -1,0 +1,14 @@
+pyrofit:
+  module: examples.conlearn2
+  model: model 
+conditioning:
+  model/x: "$NPZ conlearn2.mock.npz"
+guide:
+  type: CustomGuide
+  module: examples.conlearn2
+  name: ConLearnGuide
+  sleep_sites: ['model/z']
+model[Model]:
+  variables:
+    z:
+      sample: [dist.Normal, 0.0, 1.0]
