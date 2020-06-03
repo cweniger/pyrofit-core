@@ -766,18 +766,13 @@ class TorchInterpNd:
         p = p_or_args if len(p_or_args) == 1 else torch.stack(torch.broadcast_tensors(*p_or_args), -1)
         assert p.shape[-1] == self.ndim
 
-        if p.ndim == 1:
-            p = p.unsqueeze(0)  # introduce batch dim if not present
+        p = 2 * (p - self.ranges[:, 0]) / self.extents - 1
 
-        # return p
+        p_flat = p.reshape(*((1,) * self.ndim), -1, self.ndim)
+        data_flat = self.data.unsqueeze(0)
 
-        p = 2*(p - self.ranges[:, 0]) / self.extents - 1
-
-        # -> (N=batch dims, channels, "image" dims..., ndim)
-        p_flat = p.reshape(-1, *((1,)*self.ndim), self.ndim)
-        data_flat = self.data.unsqueeze(0).expand(p_flat.shape[0], *self.data.shape)
-        res = func.grid_sample(data_flat, p_flat, align_corners=True)
-        return res.reshape(*p.shape[:-1], self.channels)
+        res = torch.nn.functional.grid_sample(data_flat, p_flat, align_corners=True)
+        return moveaxis(res.reshape(self.channels, *p.shape[:-1]), 0, -1)
 
 
 from math import pi
