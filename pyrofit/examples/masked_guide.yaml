@@ -1,0 +1,17 @@
+pyrofit:
+  module: examples.masked_guide
+  model: MyModel
+conditioning:
+  MyModel/obs: $NPZ masked_guide.npz[obs]
+guide:
+  type: DiagonalNormal
+  match: .*
+MyModel[Model]:
+  settings:
+    mask: $NPZ masked_guide.npz[mask]
+  variables:
+    x:
+      init: '$EVAL torch.zeros(100)'
+      sample: [dist.Normal, '$EVAL torch.zeros(100)', '$EVAL torch.ones(100)']
+      mask: $NPZ masked_guide.npz[mask]
+    error: 0.05
