@@ -82,6 +82,13 @@ class InverseTransformSampling(dist.TorchDistribution):
     def support(self):
         return self._support
 
+    @property
+    def mean(self):
+        x = (self._grid[:-1] + self._grid[1:]) / 2
+        dx = (self._grid[1:] - self._grid[:-1])
+        return (x * self.log_prob(x).exp() * dx).sum() / (self.log_prob(x).exp() * dx).sum()
+
+
     @staticmethod
     def _get_cdf(log_prob, grid, th = 0.):
         log_prob_grid = log_prob(grid)
@@ -167,8 +174,8 @@ class GaussianSampler(InverseTransformSampling):
             torch.tensor(1., device=self.device)
         ).expand(self.batch_shape)
 
-    def draw(self, name: str, sample_shape: typing.Union[torch.Size, typing.Tuple[int]]):
-        return pyro.sample(name, self.standard_normal.expand_by(sample_shape))
+    def draw(self, name: str, sample_shape: typing.Union[torch.Size, typing.Sequence[int]]):
+        return pyro.sample(name, self.standard_normal.expand_by(sample_shape).to_event(len(sample_shape)))
 
     def transform_sample(self, sample):
         return self.ppf(self.standard_normal.cdf(sample)).reshape(sample.shape)
